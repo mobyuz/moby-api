@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM google_handoffs WHERE expires_at <= now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "e3652638b8a770d8d0bf8426aef6425e46ab6fed2e3abee520612f0f9d9ab184"
+}

@@ -1,0 +1,43 @@
+name: moby-api
+
+services:
+  api:
+    build: .
+    environment:
+      MOBY_BIND_ADDR: 0.0.0.0:8080
+      DATABASE_URL: postgres://moby:moby_dev@postgres:5432/moby?sslmode=disable
+      MOBY_DEV_SMTP_HOST: mailpit
+      MOBY_AUTH_DEV_EPHEMERAL: 'true'
+      MOBY_GOOGLE_CLIENT_ID:
+      MOBY_GOOGLE_CLIENT_SECRET:
+      MOBY_GOOGLE_REDIRECT_URI:
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17.11-bookworm
+    environment:
+      POSTGRES_DB: moby
+      POSTGRES_USER: moby
+      POSTGRES_PASSWORD: moby_dev
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "moby", "-d", "moby"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  mailpit:
+    image: axllent/mailpit:v1.33.0
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+
+volumes:
+  postgres-data:

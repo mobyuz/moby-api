@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.installation_id FROM sessions s\n         JOIN users u ON u.id = s.user_id\n         JOIN installations i ON i.id = s.installation_id\n         WHERE s.id = $1 AND s.user_id = $2 AND s.revoked_at IS NULL AND s.expires_at > now()\n           AND i.revoked_at IS NULL AND u.status = 'active' AND u.email_verified_at IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "installation_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "32abfb22d7e84dc6d9d83e48393e0a79f52b796200d29361d63f65d267a78fd1"
+}

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE email_tokens SET used_at = now(), pending_password_hash = NULL,\n            terms_version = NULL, privacy_policy_version = NULL\n         WHERE token_hash = $1 AND user_id = $2 AND kind = $3\n            AND used_at IS NULL AND expires_at > clock_timestamp()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "49fbcd2e9b4d220f969ffd2da4016ca00a3eb1efd66542a85fdab049d71171e3"
+}

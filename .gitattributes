@@ -1,0 +1,4 @@
+* text=auto
+openapi.json text eol=lf
+/.sqlx/*.json text eol=lf
+/migrations/*.sql text eol=lf

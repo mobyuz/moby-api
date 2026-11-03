@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM google_attempts WHERE expires_at <= now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "67da744e0e9e57f61d9d4e9416852f99e5703a7e2acc8248aecb6ffc6e79588e"
+}

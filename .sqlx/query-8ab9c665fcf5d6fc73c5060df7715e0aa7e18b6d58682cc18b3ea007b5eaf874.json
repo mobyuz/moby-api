@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO auth_rate_limits (bucket, hits, reset_at) VALUES ($1, 1, now() + interval '15 minutes')\n         ON CONFLICT (bucket) DO UPDATE SET\n            hits = CASE WHEN auth_rate_limits.reset_at <= now() THEN 1 ELSE auth_rate_limits.hits + 1 END,\n            reset_at = CASE WHEN auth_rate_limits.reset_at <= now() THEN EXCLUDED.reset_at ELSE auth_rate_limits.reset_at END\n         WHERE auth_rate_limits.reset_at <= now() OR auth_rate_limits.hits < $2 RETURNING hits",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "hits",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8ab9c665fcf5d6fc73c5060df7715e0aa7e18b6d58682cc18b3ea007b5eaf874"
+}

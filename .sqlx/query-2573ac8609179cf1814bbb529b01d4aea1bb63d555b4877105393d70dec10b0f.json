@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO consents (user_id, type, version)\n                VALUES ($1, 'terms', $2), ($1, 'privacy_policy', $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2573ac8609179cf1814bbb529b01d4aea1bb63d555b4877105393d70dec10b0f"
+}

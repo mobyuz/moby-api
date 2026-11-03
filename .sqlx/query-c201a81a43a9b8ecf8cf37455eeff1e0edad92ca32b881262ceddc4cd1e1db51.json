@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO google_handoffs (code_hash, desktop_challenge, subject, email,\n            terms_version, privacy_policy_version, expires_at)\n         VALUES ($1, $2, $3, $4, $5, $6, now() + interval '90 seconds')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c201a81a43a9b8ecf8cf37455eeff1e0edad92ca32b881262ceddc4cd1e1db51"
+}

@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT user_id, pending_password_hash AS \"password_hash!\", terms_version AS \"terms_version!\",\n                      privacy_policy_version AS \"privacy_policy_version!\"\n               FROM email_tokens WHERE token_hash = $1 AND kind = 'verify_email'\n                    AND used_at IS NULL AND expires_at > now()",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "password_hash!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "terms_version!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "privacy_policy_version!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "f671b3bc1fd9d756469eb7b26a5ef07a3b7fc314b8d25b48cc7b37f7588cd8d0"
+}

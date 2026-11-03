@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM google_handoffs WHERE code_hash = $1 AND expires_at > clock_timestamp()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c0394a97c49fab2821ca9bfa4b8327b3f54d9aa0f611e031a9293c5d91627585"
+}

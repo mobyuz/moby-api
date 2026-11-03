@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, password_hash AS \"password_hash!\"\n           FROM users WHERE email = $1 AND status = 'active'\n                AND email_verified_at IS NOT NULL AND password_hash IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "password_hash!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "0cea37a89183ac49eeff1dca5f93a2b5d5fe34ddc7d54281b5101104792310be"
+}

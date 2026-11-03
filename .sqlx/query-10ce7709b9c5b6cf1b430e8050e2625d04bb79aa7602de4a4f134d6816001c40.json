@@ -1,0 +1,49 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO installations (id, user_id, name, app_version) VALUES ($1, $2, $3, $4)\n            RETURNING id, name, os, app_version, false AS \"revoked!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "os",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "app_version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "revoked!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "10ce7709b9c5b6cf1b430e8050e2625d04bb79aa7602de4a4f134d6816001c40"
+}

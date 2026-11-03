@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<main>
+  <h1>{{TITLE}}</h1>
+  <form method="post">
+    <label for="password">{{LABEL}}</label>
+    <input id="password" name="{{FIELD}}" type="password" autocomplete="{{AUTOCOMPLETE}}" required>
+    <button disabled>Continue</button>
+  </form>
+  <p role="status"></p>
+  <noscript>JavaScript is required to submit this form securely.</noscript>
+</main>
+<script nonce="{{NONCE}}">
+  const token = new URLSearchParams(location.hash.slice(1)).get("token");
+  history.replaceState(null, "", location.pathname);
+  const form = document.querySelector("form");
+  const password = form.querySelector("input");
+  const button = form.querySelector("button");
+  const status = document.querySelector("[role=status]");
+  if (token) {
+    button.disabled = false;
+  } else {
+    status.textContent = "Open the link from your Moby email.";
+  }
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!token || button.disabled) return;
+    button.disabled = true;
+    try {
+      const response = await fetch(location.pathname, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, [password.name]: password.value })
+      });
+      if (response.ok) {
+        form.hidden = true;
+        status.textContent = "Done. You can close this page.";
+      } else {
+        const error = await response.json();
+        status.textContent = error.message || "The request could not be completed.";
+      }
+    } catch {
+      status.textContent = "The service could not be reached. Try again.";
+    } finally {
+      password.value = "";
+      button.disabled = false;
+    }
+  });
+</script>
+</html>

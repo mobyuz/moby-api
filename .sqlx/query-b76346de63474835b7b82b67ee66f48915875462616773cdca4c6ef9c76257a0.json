@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO consents (user_id, type, version) VALUES ($1, $2, $3)\n             ON CONFLICT (user_id, type, version) DO UPDATE SET accepted_at = now(), revoked_at = NULL\n             WHERE consents.revoked_at IS NOT NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b76346de63474835b7b82b67ee66f48915875462616773cdca4c6ef9c76257a0"
+}

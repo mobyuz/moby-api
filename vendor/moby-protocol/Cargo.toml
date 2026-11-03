@@ -1,0 +1,35 @@
+[package]
+name = "moby-protocol"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.1"
+description = "Versioned wire contract for the Moby companion"
+repository = "https://github.com/mobyuz/moby-protocol"
+license = "GPL-3.0-only"
+publish = false
+
+[features]
+default = []
+generate = ["dep:serde_json", "dep:ts-rs"]
+
+[dependencies]
+schemars = "=1.2.3"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.154", optional = true }
+time = { version = "=0.3.55", default-features = false, features = ["parsing"] }
+# deny_unknown_fields affects runtime decoding, not TypeScript's structural types.
+ts-rs = { version = "=12.0.1", optional = true, features = ["no-serde-warnings"] }
+
+[dev-dependencies]
+serde_json = "=1.0.154"
+
+[[bin]]
+name = "generate"
+path = "src/bin/generate.rs"
+required-features = ["generate"]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"
