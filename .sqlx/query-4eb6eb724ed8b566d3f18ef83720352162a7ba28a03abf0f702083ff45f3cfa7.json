@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM google_handoffs WHERE email = $2 OR subject IN\n         (SELECT subject FROM oauth_identities WHERE user_id = $1 AND provider = 'google')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4eb6eb724ed8b566d3f18ef83720352162a7ba28a03abf0f702083ff45f3cfa7"
+}

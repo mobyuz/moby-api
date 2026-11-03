@@ -1,0 +1,13 @@
+**
+!Cargo.toml
+!Cargo.lock
+!build.rs
+!.sqlx/
+!.sqlx/**
+!migrations/
+!migrations/**
+!src/
+!src/**
+!vendor/
+!vendor/moby-protocol/
+!vendor/moby-protocol/**

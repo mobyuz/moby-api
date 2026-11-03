@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE sessions s SET revoked_at = now() FROM refresh_tokens t\n         WHERE t.token_hash = $1 AND t.session_id = s.id AND s.revoked_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "64c8b78002c96b8777d2832cd79bf1abe8452e49609b8c79eadcdb4e802cf8b1"
+}

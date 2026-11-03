@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: Rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      SQLX_OFFLINE: 'true'
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.98.1 --profile minimal --component clippy --component rustfmt
+      - name: Formatting
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: HTTP tests and OpenAPI drift check
+        run: cargo test --locked
+
+  compose:
+    name: Compose and PostgreSQL smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Start stack
+        run: |
+          docker compose config --quiet
+          docker compose up --build --detach --wait
+      - name: Probe API and database transitions
+        shell: bash
+        run: |
+          base=http://127.0.0.1:8080
+          curl -fsS --retry 15 --retry-all-errors --retry-delay 1 "$base/health" | jq -e '.status == "ok"'
+          curl -fsS "$base/ready" | jq -e '.status == "ready"'
+          curl -fsS "$base/openapi.json" -o "$RUNNER_TEMP/served-openapi.json"
+          diff <(jq -S . openapi.json) <(jq -S . "$RUNNER_TEMP/served-openapi.json")
+          docker compose stop postgres
+          curl -sS "$base/ready" -o "$RUNNER_TEMP/ready.json" -w '%{http_code}' | grep -x '503'
+          jq -e '.status == "not_ready"' "$RUNNER_TEMP/ready.json"
+          curl -fsS "$base/health" | jq -e '.status == "ok"'
+          docker compose up --detach --wait postgres
+          curl -fsS --retry 15 --retry-all-errors --retry-delay 1 "$base/ready" | jq -e '.status == "ready"'
+      - name: Account, session and profile smoke tests
+        shell: pwsh
+        run: |
+          ./scripts/smoke-accounts.ps1
+          ./scripts/smoke-sessions.ps1
+      - name: Agent SSE and desktop tool round trip
+        shell: pwsh
+        run: ./scripts/smoke-agent.ps1
+      - name: Check SQLx query metadata against migrated PostgreSQL
+        env:
+          DATABASE_URL: postgres://moby:moby_dev@127.0.0.1:55432/moby?sslmode=disable
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          cargo install sqlx-cli --version 0.8.6 --locked --no-default-features --features postgres,rustls
+          cargo sqlx prepare --check -- --locked
+      - name: Google OIDC and desktop handoff smoke test
+        env:
+          SQLX_OFFLINE: 'true'
+          MOBY_GOOGLE_TEST_DATABASE_URL: postgres://moby:moby_dev@127.0.0.1:55432/moby?sslmode=disable
+        run: cargo test --locked --lib google::tests::google_round_trip -- --ignored
+      - name: PostgreSQL usage reservations and budget limits
+        env:
+          SQLX_OFFLINE: 'true'
+          MOBY_USAGE_TEST_DATABASE_URL: postgres://moby:moby_dev@127.0.0.1:55432/moby?sslmode=disable
+        run: cargo test --locked --lib usage_ -- --ignored
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Stop stack
+        if: always()
+        run: docker compose down --volumes

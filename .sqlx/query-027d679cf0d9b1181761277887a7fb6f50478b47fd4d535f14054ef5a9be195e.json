@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM google_attempts WHERE state_hash = $1 AND expires_at > now()\n         RETURNING desktop_port, desktop_state, desktop_challenge, terms_version, privacy_policy_version",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "desktop_port",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "desktop_state",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "desktop_challenge",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "terms_version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "privacy_policy_version",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "027d679cf0d9b1181761277887a7fb6f50478b47fd4d535f14054ef5a9be195e"
+}

@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.id, s.user_id, s.installation_id FROM refresh_tokens t\n         JOIN sessions s ON s.id = t.session_id\n         JOIN users u ON u.id = s.user_id\n         JOIN installations i ON i.id = s.installation_id\n         WHERE t.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > clock_timestamp()\n           AND i.revoked_at IS NULL AND u.status = 'active' AND u.email_verified_at IS NOT NULL\n         FOR UPDATE OF s",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "installation_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "b07413618ac67cf4bbeb6fbef381ab0f234d1acb009091f22fc2cc1bac69eb9b"
+}
