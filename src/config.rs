@@ -4,7 +4,7 @@ use lettre::Address;
 use sqlx::{ConnectOptions, postgres::PgConnectOptions};
 use url::Url;
 
-use crate::{AccessKeys, Google, UsageConfig};
+use crate::{AccessKeys, Demo, Google, UsageConfig, usage::DemoBudget};
 
 pub struct Config {
     pub bind_addr: SocketAddr,
@@ -13,6 +13,7 @@ pub struct Config {
     pub access_keys: AccessKeys,
     pub google: Option<Google>,
     pub usage: UsageConfig,
+    pub demo: Option<Demo>,
 }
 
 #[derive(Clone)]
@@ -112,16 +113,25 @@ impl UsageConfig {
         let agent_enabled = env_or("MOBY_AGENT_ENABLED", "true")?
             .parse()
             .map_err(|_| "MOBY_AGENT_ENABLED must be true or false")?;
-        let daily_tokens = env_or("MOBY_LLM_DAILY_TOKENS", &defaults.daily_tokens.to_string())?
+        let voice_enabled = env_or("MOBY_VOICE_ENABLED", "false")?
             .parse()
-            .map_err(|_| "MOBY_LLM_DAILY_TOKENS must be a nonnegative u32")?;
+            .map_err(|_| "MOBY_VOICE_ENABLED must be true or false")?;
         Ok(Self {
             agent_enabled,
-            daily_tokens,
+            voice_enabled,
+            daily_tokens: quota("MOBY_LLM_DAILY_TOKENS", defaults.daily_tokens)?,
+            daily_stt_seconds: quota("MOBY_STT_DAILY_SECONDS", defaults.daily_stt_seconds)?,
+            daily_tts_chars: quota("MOBY_TTS_DAILY_CHARS", defaults.daily_tts_chars)?,
             daily_budget_microusd: budget("MOBY_LLM_DAILY_BUDGET_MICROUSD")?,
             monthly_budget_microusd: budget("MOBY_LLM_MONTHLY_BUDGET_MICROUSD")?,
         })
     }
+}
+
+fn quota(name: &'static str, default: u32) -> Result<u32, &'static str> {
+    env_or(name, &default.to_string())?
+        .parse()
+        .map_err(|_| name)
 }
 
 fn budget(name: &'static str) -> Result<i64, &'static str> {
@@ -130,6 +140,28 @@ fn budget(name: &'static str) -> Result<i64, &'static str> {
         .ok()
         .filter(|value| *value >= 0)
         .ok_or(name)
+}
+
+fn demo_from_env() -> Result<Option<Demo>, &'static str> {
+    let enabled: bool = env_or("MOBY_DEMO_ENABLED", "false")?
+        .parse()
+        .map_err(|_| "MOBY_DEMO_ENABLED must be true or false")?;
+    if !enabled {
+        return Ok(None);
+    }
+    let secret = env::var("MOBY_TURNSTILE_SECRET_KEY")
+        .map_err(|_| "MOBY_TURNSTILE_SECRET_KEY is required")?;
+    let hostname = env::var("MOBY_DEMO_HOSTNAME").map_err(|_| "MOBY_DEMO_HOSTNAME is required")?;
+    let ip_limit = quota("MOBY_DEMO_REQUESTS_PER_15_MINUTES", 12)?;
+    if !(1..=1000).contains(&ip_limit) {
+        return Err("MOBY_DEMO_REQUESTS_PER_15_MINUTES must be between 1 and 1000");
+    }
+    let budget = DemoBudget {
+        daily_units: quota("MOBY_DEMO_DAILY_TOKENS", 60_000)?,
+        daily_cost_microusd: budget("MOBY_DEMO_DAILY_BUDGET_MICROUSD")?,
+        monthly_cost_microusd: budget("MOBY_DEMO_MONTHLY_BUDGET_MICROUSD")?,
+    };
+    Demo::new(secret, &hostname, budget, ip_limit as i32).map(Some)
 }
 
 fn policy_version(name: &'static str, default: &str) -> Result<String, &'static str> {
@@ -175,6 +207,7 @@ impl Config {
             access_keys: AccessKeys::from_env(bind_addr.ip().is_loopback())?,
             google: Google::from_env()?,
             usage: UsageConfig::from_env()?,
+            demo: demo_from_env()?,
         })
     }
 }

@@ -116,16 +116,44 @@ Limitlar 128 KiB JSON, 64 xabar, 64 resurs, matn yoki vosita natijasi uchun 8 Ki
 
 ### Kvota va xizmat byudjeti
 
-`GET /v1/usage` faol Bearer sessiyasi uchun qolgan LLM kvotasi va keyingi UTC yarim tunini `reset_at` maydonida qaytaradi. Ovoz kvotalari STT va TTS bosqichigacha 0. Agent provayderga murojaat qilishdan oldin foydalanuvchi kvotasi va xizmat byudjetidan yuqori chegarani band qiladi. Hisobot kelganda ortiqcha bandlov bo‘shaydi. Timeout yoki uzilishda sarf noma’lum qolsa, bandlov o‘z davrida hisoblanadi. Kvota yetmasa `429 quota_exceeded`, byudjet yetmasa `503 service_budget_exhausted` qaytadi.
+`GET /v1/usage` faol Bearer sessiyasi uchun qolgan LLM tokenlari, STT soniyalari, TTS belgilarini va keyingi UTC yarim tunini `reset_at` maydonida qaytaradi. Ovoz o‘chirilganda uning qoldiqlari 0. API provayderga murojaat qilishdan oldin foydalanuvchi kvotasi va xizmat byudjetidan yuqori chegarani band qiladi. Hisobot kelganda ortiqcha bandlov bo‘shaydi. Timeout yoki uzilishda sarf noma’lum qolsa, bandlov o‘z davrida hisoblanadi. Kvota yetmasa `429 quota_exceeded`, byudjet yetmasa `503 service_budget_exhausted` qaytadi.
 
 | Muhit o‘zgaruvchisi | Standart | Ma’nosi |
 | --- | --- | --- |
 | `MOBY_LLM_DAILY_TOKENS` | `250000` | Bir hisobning UTC kunlik LLM kvotasi. Mock matnni deterministik UTF-8 birliklarida hisoblaydi. |
-| `MOBY_LLM_DAILY_BUDGET_MICROUSD` | `0` | Xizmatning UTC kunlik xarajat chegarasi. |
-| `MOBY_LLM_MONTHLY_BUDGET_MICROUSD` | `0` | Xizmatning UTC oylik xarajat chegarasi. |
+| `MOBY_LLM_DAILY_BUDGET_MICROUSD` | `0` | LLM, STT va TTS uchun umumiy UTC kunlik xarajat chegarasi. |
+| `MOBY_LLM_MONTHLY_BUDGET_MICROUSD` | `0` | LLM, STT va TTS uchun umumiy UTC oylik xarajat chegarasi. |
 | `MOBY_AGENT_ENABLED` | `true` | Agent turnlarini to‘xtatish uchun `false` qilib API’ni qayta ishga tushiring. |
 
 1 USD = 1 000 000 mikroUSD. Mock xarajati 0. Provayder ketma-ket uch marta xato qilsa, servis yangi agent so‘rovlarini 30 soniyaga to‘xtatadi. So‘ng bitta sinov so‘rovi o‘tadi va muvaffaqiyatli javob kelganda trafik ochiladi. [Kvota va bandlov ADR’i](docs/adr/0007-agent-usage.md)
+
+## Ovoz API
+
+Har ikkala endpoint faol Bearer sessiyasi va joriy `cloud_voice` roziligini talab qiladi. Rozilik versiyasini `GET /v1/consents`dan oling. `POST /v1/consents`ga `{"type":"cloud_voice","version":"dev-1","accepted":true}` yuborish lokal standart versiya uchun rozilik beradi. Rozilik bekor qilinganda yoki versiya eskirganda yangi ovoz so‘rovi `403 voice_consent_required` oladi.
+
+| Endpoint | So‘rov | Javob |
+| --- | --- | --- |
+| `POST /v1/voice/stt` | `audio/wav` tanasida mono 16 kHz, 16-bit PCM. 30 soniyagacha audio va 4 KiB WAV sarlavha hamda metadata. `language` va `script` query parametrlari ixtiyoriy. | `text`, `language`, `script` va 0–1 oralig‘idagi `confidence` bilan JSON. |
+| `POST /v1/voice/tts` | `application/json` tanasida 1–500 Unicode belgili `text` hamda ixtiyoriy `language` va `script`. | Mono 16 kHz, 16-bit PCM `audio/wav`. |
+
+Til va yozuv juftlari `uz/latn`, `uz/cyrl`, `ru/cyrl` va `en/latn`. Standart juft `uz/latn`. STT kvotasi audio davomiyligini yuqoriga butun soniyaga yaxlitlaydi. TTS kvotasi Unicode belgilarini sanaydi. Provayder muddati 15 soniya. Audio va matn so‘rov davomida xotirada ishlatiladi.
+
+Dev Compose ovoz mockini standart yoqadi. Hostda `MOBY_VOICE_ENABLED=true` bilan yoqing. `MOBY_STT_DAILY_SECONDS` va `MOBY_TTS_DAILY_CHARS` standartlari mos ravishda 300 va 5000. Mock STT tilga mos tayyor test matnini, mock TTS esa WAV sinov signalini beradi. [Ovoz API qarorlari](docs/adr/0008-voice-api.md)
+
+## Mehmonlar uchun veb demo API
+
+`POST /v1/demo/chat` hisob ochmagan mehmon uchun bitta qisqa matn so‘rovini qabul qiladi. JSON tanasi `{"text":"Salom","bot_token":"<turnstile-token>"}` ko‘rinishida. So‘rov 280 belgigacha va 8 KiB JSON bilan chegaralangan. Javobda 240 belgigacha `reply` maydoni bor. Joriy demo provayderi o‘zbekcha mock javob qaytaradi.
+
+Demo standart holatda o‘chiq. Yoqish uchun `MOBY_DEMO_ENABLED=true`, serverda `MOBY_TURNSTILE_SECRET_KEY` va veb demo domeni uchun `MOBY_DEMO_HOSTNAME`ni sozlang. Frontend Turnstile vidjetida shu domen, vidjetning ochiq site key’i va `demo_chat` amalidan foydalanadi. Server tokenni Siteverify orqali tekshiradi. Frontend API’ni bir origin orqali chaqirishi mumkin. [Turnstile server tekshiruvi](https://developers.cloudflare.com/turnstile/get-started/server-side-validation/)
+
+| Muhit o‘zgaruvchisi | Standart | Ma’nosi |
+| --- | --- | --- |
+| `MOBY_DEMO_REQUESTS_PER_15_MINUTES` | `12` | 15 daqiqada bir IPv4 manzili yoki IPv6 /64 tarmog‘iga ruxsat etiladigan urinishlar. |
+| `MOBY_DEMO_DAILY_TOKENS` | `60000` | Mehmonlarning umumiy UTC kunlik token byudjeti. Mock birliklari UTF-8 baytlaridan olinadi. |
+| `MOBY_DEMO_DAILY_BUDGET_MICROUSD` | `0` | Faqat mehmonlar uchun UTC kunlik xarajat chegarasi. |
+| `MOBY_DEMO_MONTHLY_BUDGET_MICROUSD` | `0` | Faqat mehmonlar uchun UTC oylik xarajat chegarasi. |
+
+IP cheklovi ulanishdagi manzilga asoslanadi. Proxy ortida barcha ulanishlar proxy manzili orqali hisoblanadi. Bot tekshiruvi rad etilsa `403`, IP limiti tugasa `429`, byudjet tugasa yoki tekshiruv xizmati ishlamasa `503` qaytadi. Bot tokeni va so‘rov matni ishlov berish vaqtida xotirada qoladi. [Demo API qarorlari](docs/adr/0009-guest-demo.md)
 
 ## Tekshiruvlar
 
@@ -154,3 +182,7 @@ Toza lokal Compose loyihasi ishga tushganida `pwsh -File scripts/smoke-accounts.
 `pwsh -File scripts/smoke-agent.ps1 -Project <loyiha-nomi>` tasdiqlangan hisob, SSE javobi, `git_status` oqimi, kvota hisoblanishi va sintetik suhbat mazmuni saqlanmasligini tekshiradi.
 
 `MOBY_USAGE_TEST_DATABASE_URL`ni ajratilgan PostgreSQL bazasiga sozlab, `cargo test --locked --lib usage_ -- --ignored`ni bajaring. Testlar parallel kvota va byudjet bandlovlari, takroriy yakunlash, timeout, uzilish va qayta ulanishni tekshiradi.
+
+`MOBY_VOICE_TEST_DATABASE_URL` shu turdagi ajratilgan bazaga sozlanganda `cargo test --locked --lib voice::tests::voice_consent_quota_and_locale_round_trip -- --ignored` ovoz endpointlari, to‘rt til va yozuv jufti, rozilikning bekor qilinishi hamda kvotani tekshiradi.
+
+`MOBY_DEMO_TEST_DATABASE_URL` ajratilgan bazaga sozlanganda `cargo test --locked --lib demo::tests::guest_bot_rate_and_budget_round_trip -- --ignored` lokal Siteverify simulyatori bilan demo tekshiruvlarini bajaradi.

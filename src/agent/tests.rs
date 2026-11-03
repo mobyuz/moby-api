@@ -22,7 +22,7 @@ struct TestProvider(Mutex<Option<ProviderStream>>);
 impl LlmProvider for TestProvider {
     fn estimate(&self, _: &AgentTurnRequest, _: &str) -> Charge {
         Charge {
-            tokens: 1,
+            units: 1,
             cost_microusd: 0,
         }
     }
@@ -181,12 +181,12 @@ async fn usage_holds_survive_timeout_and_disconnect() {
         ..UsageConfig::default()
     };
     let estimate = Charge {
-        tokens: 60,
+        units: 60,
         cost_microusd: 0,
     };
     for disconnect in [false, true] {
         let id = Uuid::new_v4();
-        usage::reserve(&pool, limits, user, id, estimate)
+        usage::reserve(&pool, limits, user, id, usage::Work::Agent, estimate)
             .await
             .unwrap();
         let upstream = stream::iter([AgentTurnResponse::SpeechDelta {
@@ -220,7 +220,7 @@ async fn usage_holds_survive_timeout_and_disconnect() {
         }
         assert_eq!(
             sqlx::query_scalar::<_, Option<i64>>(
-                "SELECT actual_tokens FROM agent_usage_reservations WHERE id = $1"
+                "SELECT actual_units FROM usage_reservations WHERE id = $1"
             )
             .bind(id)
             .fetch_one(&pool)

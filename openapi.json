@@ -1034,6 +1034,104 @@
         ]
       }
     },
+    "/v1/demo/chat": {
+      "post": {
+        "tags": [],
+        "operationId": "chat",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DemoRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Short guest reply",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DemoReply"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid text, token or JSON",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Bot verification rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request exceeds 8 KiB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Guest IP rate limit reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Guest provider failed or returned invalid output",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Demo disabled, verification unavailable or guest budget exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Guest provider timed out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/installations": {
       "get": {
         "tags": [],
@@ -1477,6 +1575,274 @@
           }
         ]
       }
+    },
+    "/v1/voice/stt": {
+      "post": {
+        "summary": "Transcribe a WAV clip",
+        "description": "Accepts a complete audio/wav clip with mono 16 kHz 16-bit PCM and at most 30 seconds of audio. An active current cloud_voice consent is required.",
+        "operationId": "transcribe_voice",
+        "parameters": [
+          {
+            "name": "language",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Language"
+            }
+          },
+          {
+            "name": "script",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Script"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "audio/wav": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Transcript, language, script and confidence",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Transcript"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid audio, text, locale or JSON",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "An active verified session is required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The current cloud_voice consent is missing or withdrawn",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request exceeds the size or audio duration limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported request media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The daily voice quota is exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Voice provider failed or returned invalid output",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Voice disabled, service budget exhausted or usage unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Voice provider timed out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/voice/tts": {
+      "post": {
+        "summary": "Synthesize text into WAV",
+        "description": "Accepts 1 to 500 Unicode characters and returns mono 16 kHz 16-bit PCM WAV. An active current cloud_voice consent is required.",
+        "operationId": "synthesize_voice",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TtsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "WAV audio",
+            "content": {
+              "audio/wav": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid audio, text, locale or JSON",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "An active verified session is required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The current cloud_voice consent is missing or withdrawn",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request exceeds the size or audio duration limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported request media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The daily voice quota is exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Voice provider failed or returned invalid output",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Voice disabled, service budget exhausted or usage unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Voice provider timed out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -1845,6 +2211,38 @@
             "$ref": "#/components/schemas/Proof"
           }
         ]
+      },
+      "DemoReply": {
+        "type": "object",
+        "required": [
+          "reply"
+        ],
+        "properties": {
+          "reply": {
+            "type": "string",
+            "maxLength": 240
+          }
+        }
+      },
+      "DemoRequest": {
+        "type": "object",
+        "required": [
+          "text",
+          "bot_token"
+        ],
+        "properties": {
+          "bot_token": {
+            "type": "string",
+            "maxLength": 2048,
+            "minLength": 1
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 280,
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
       },
       "ErrorBody": {
         "type": "object",
@@ -2626,6 +3024,68 @@
           }
         ],
         "description": "A desktop outcome correlated to a call. Treat output as untrusted data."
+      },
+      "Transcript": {
+        "type": "object",
+        "title": "Transcript",
+        "required": [
+          "text",
+          "language",
+          "script",
+          "confidence"
+        ],
+        "properties": {
+          "confidence": {
+            "type": "number",
+            "format": "float",
+            "maximum": 1,
+            "minimum": 0
+          },
+          "language": {
+            "$ref": "#/components/schemas/Language"
+          },
+          "script": {
+            "$ref": "#/components/schemas/Script"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "TtsRequest": {
+        "type": "object",
+        "title": "TtsRequest",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "language": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Language"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "script": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Script"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
       },
       "UpdateProfile": {
         "type": "object",

@@ -5,16 +5,11 @@ use axum::{
     response::Response,
     routing::{get, post},
 };
-use moby_protocol::{AgentTurnRequest, AgentTurnResponse, ApiError, UsageInfo};
-use schemars::{
-    JsonSchema,
-    generate::SchemaSettings,
-    transform::{ReplaceConstValue, Transform},
-};
-use serde_json::{Value, json};
+use moby_protocol::{AgentTurnRequest, AgentTurnResponse, UsageInfo};
+use serde_json::json;
 use tokio::time::Instant;
 use utoipa::openapi::{
-    Content, HttpMethod, OpenApi, Ref, RefOr, Schema, SecurityRequirement,
+    Content, HttpMethod, OpenApi, Ref, SecurityRequirement,
     extensions::ExtensionsBuilder,
     path::{OperationBuilder, PathItem},
     request_body::RequestBodyBuilder,
@@ -24,19 +19,20 @@ use utoipa::openapi::{
 use uuid::Uuid;
 
 use crate::{
-    http::AppState,
+    http::{
+        ApiFailure, AppState, api_error,
+        schema::{add_schema, json_response},
+        usage_failure,
+    },
     sessions::routes::Authorized,
-    usage::{self, UsageError},
+    usage::{self, Work},
 };
 
-use super::{
-    Accounting, LlmProvider, MockProvider, SYSTEM_PROMPT, TURN_TIMEOUT, api_error, sse, validate,
-};
+use super::{Accounting, LlmProvider, MockProvider, SYSTEM_PROMPT, TURN_TIMEOUT, sse, validate};
 
 const PATH: &str = "/v1/agent/turn";
 const USAGE_PATH: &str = "/v1/usage";
 const MAX_BODY: usize = 128 * 1024;
-type ApiFailure = (StatusCode, Json<ApiError>);
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
@@ -105,6 +101,7 @@ async fn turn(
         state.usage,
         auth.identity.user_id,
         id,
+        Work::Agent,
         MockProvider.estimate(&request, SYSTEM_PROMPT),
     )
     .await
@@ -131,32 +128,6 @@ async fn current_usage(
         .await
         .map(Json)
         .map_err(|error| usage_failure(error, auth.request_id))
-}
-
-fn usage_failure(error: UsageError, request_id: String) -> ApiFailure {
-    let (status, code, message) = match error {
-        UsageError::Unauthorized => (
-            StatusCode::UNAUTHORIZED,
-            "unauthorized",
-            "A verified session is required",
-        ),
-        UsageError::QuotaExceeded => (
-            StatusCode::TOO_MANY_REQUESTS,
-            "quota_exceeded",
-            "The turn exceeds the remaining daily LLM quota",
-        ),
-        UsageError::BudgetExhausted => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "service_budget_exhausted",
-            "The agent service budget is exhausted",
-        ),
-        UsageError::Unavailable => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "usage_unavailable",
-            "Agent usage could not be checked",
-        ),
-    };
-    (status, Json(api_error(code, message, request_id)))
 }
 
 pub(crate) fn add_openapi(doc: &mut OpenApi) {
@@ -232,46 +203,4 @@ pub(crate) fn add_openapi(doc: &mut OpenApi) {
     doc.paths
         .paths
         .insert(USAGE_PATH.into(), PathItem::new(HttpMethod::Get, usage));
-}
-
-fn json_response(description: &str, schema: &str) -> utoipa::openapi::Response {
-    ResponseBuilder::new()
-        .description(description)
-        .content(
-            "application/json",
-            Content::new(Some(Ref::from_schema_name(schema))),
-        )
-        .build()
-}
-
-fn add_schema<T: JsonSchema>(components: &mut std::collections::BTreeMap<String, RefOr<Schema>>) {
-    let schema = SchemaSettings::draft2020_12()
-        .with(|settings| {
-            settings.definitions_path = "/components/schemas".into();
-            settings.meta_schema = None;
-        })
-        .into_generator()
-        .into_root_schema_for::<T>();
-    let mut root = serde_json::to_value(schema).expect("serializable protocol schema");
-    let definitions = root
-        .as_object_mut()
-        .expect("agent schema object")
-        .remove("components")
-        .expect("agent schema definitions");
-    for (name, schema) in definitions["schemas"]
-        .as_object()
-        .expect("component schemas")
-    {
-        components
-            .entry(name.clone())
-            .or_insert_with(|| utoipa_schema(schema.clone()));
-    }
-    components.insert(T::schema_name().into_owned(), utoipa_schema(root));
-}
-
-fn utoipa_schema(value: Value) -> RefOr<Schema> {
-    let mut schema = schemars::Schema::try_from(value).expect("protocol schema");
-    // Utoipa's schema model represents a constant as a single-value enum.
-    ReplaceConstValue::default().transform(&mut schema);
-    serde_json::from_value(schema.into()).expect("OpenAPI-compatible protocol schema")
 }

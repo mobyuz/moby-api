@@ -9,14 +9,17 @@ use futures_util::{
     stream::{self, BoxStream},
 };
 use moby_protocol::{
-    AgentMessage, AgentTurnRequest, AgentTurnResponse, ApiError, ResourceKind, StableId, ToolCall,
-    ToolName, ToolRequest, ToolResult,
+    AgentMessage, AgentTurnRequest, AgentTurnResponse, ResourceKind, StableId, ToolCall, ToolName,
+    ToolRequest, ToolResult,
 };
 use sqlx::PgPool;
 use tokio::time::{Instant, timeout_at};
 use uuid::Uuid;
 
-use crate::usage::{self, Charge};
+use crate::{
+    http::api_error,
+    usage::{self, Charge},
+};
 
 pub(crate) mod circuit;
 mod mock;
@@ -286,12 +289,4 @@ pub(crate) fn sse(
         Some((Ok::<_, Infallible>(frame), continuing.then_some(turn)))
     }))
     .into_response()
-}
-
-pub(crate) fn api_error(code: &str, message: &str, request_id: String) -> ApiError {
-    ApiError {
-        code: code.into(),
-        message: message.into(),
-        request_id,
-    }
 }

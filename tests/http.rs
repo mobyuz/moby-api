@@ -79,6 +79,29 @@ async fn openapi_endpoint_matches_release_artifact() {
         usage["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
         "#/components/schemas/UsageInfo"
     );
+    let stt = &served["paths"]["/v1/voice/stt"]["post"];
+    let tts = &served["paths"]["/v1/voice/tts"]["post"];
+    assert_eq!(
+        stt["requestBody"]["content"]["audio/wav"]["schema"]["format"],
+        "binary"
+    );
+    assert_eq!(
+        tts["responses"]["200"]["content"]["audio/wav"]["schema"]["format"],
+        "binary"
+    );
+    for voice in [stt, tts] {
+        assert!(voice["security"][0]["bearer"].is_array());
+        assert!(voice["responses"]["403"].is_object());
+        assert!(voice["responses"]["429"].is_object());
+    }
+    let demo = &served["paths"]["/v1/demo/chat"]["post"];
+    assert!(demo.get("security").is_none());
+    for status in ["200", "403", "429", "503"] {
+        assert!(demo["responses"][status].is_object());
+    }
+    let demo_reply = &served["components"]["schemas"]["DemoReply"]["properties"];
+    assert!(demo_reply["reply"].is_object());
+    assert!(demo_reply.get("tool_request").is_none());
     assert_eq!(
         agent["responses"]["200"]["content"]["text/event-stream"]["x-sse-data-schema"]["$ref"],
         "#/components/schemas/AgentTurnResponse"

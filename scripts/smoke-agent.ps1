@@ -109,7 +109,7 @@ if (($after.reset_at -eq $before.reset_at) -and ($after.llm_tokens_remaining -ge
     throw 'Successful turns did not decrease the account quota'
 }
 $turnId = [Guid]::Parse($completion.Headers['x-request-id'][0]).ToString()
-$settled = docker compose -p $Project exec -T postgres psql -U moby -d moby -At -v ON_ERROR_STOP=1 -c "SELECT (actual_tokens > 0 AND actual_tokens < reserved_tokens AND actual_cost_microusd = 0) FROM agent_usage_reservations WHERE id = '$turnId';"
+$settled = docker compose -p $Project exec -T postgres psql -U moby -d moby -At -v ON_ERROR_STOP=1 -c "SELECT (actual_units > 0 AND actual_units < reserved_units AND actual_cost_microusd = 0) FROM usage_reservations WHERE id = '$turnId' AND meter = 'llm';"
 if ($LASTEXITCODE -ne 0 -or $settled -ne 't') { throw 'Expected exact zero-cost mock usage to settle' }
 
 $dump = docker compose -p $Project exec -T postgres pg_dump -U moby -d moby --data-only --no-owner

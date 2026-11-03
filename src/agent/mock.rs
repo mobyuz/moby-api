@@ -16,7 +16,7 @@ const MOCK_OUTPUT_LIMIT: u32 = 512;
 impl LlmProvider for MockProvider {
     fn estimate(&self, request: &AgentTurnRequest, prompt: &str) -> Charge {
         Charge {
-            tokens: input_tokens(request, prompt) + MOCK_OUTPUT_LIMIT,
+            units: input_tokens(request, prompt) + MOCK_OUTPUT_LIMIT,
             cost_microusd: 0,
         }
     }
@@ -111,7 +111,7 @@ fn terminal(response: AgentTurnResponse, input: u32) -> ProviderEvent {
     ProviderEvent {
         response,
         charge: Some(Charge {
-            tokens: input + u32::try_from(bytes).expect("bounded mock output"),
+            units: input + u32::try_from(bytes).expect("bounded mock output"),
             cost_microusd: 0,
         }),
     }
