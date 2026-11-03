@@ -7,6 +7,7 @@ mod http;
 mod profile;
 mod sessions;
 mod usage;
+mod voice;
 
 pub use google::Google;
 pub use http::{openapi, router, router_with_usage};

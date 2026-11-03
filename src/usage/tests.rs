@@ -4,7 +4,10 @@ use axum::{
     http::{Request, StatusCode, header},
 };
 use serde_json::{Value, json};
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use sqlx::{
+    migrate::Migrator,
+    postgres::{PgConnectOptions, PgPoolOptions},
+};
 use tower::ServiceExt;
 
 use super::*;
@@ -21,15 +24,15 @@ async fn user(pool: &PgPool) -> Uuid {
     id
 }
 
-fn charge(tokens: u32, cost_microusd: i64) -> Charge {
+fn charge(units: u32, cost_microusd: i64) -> Charge {
     Charge {
-        tokens,
+        units,
         cost_microusd,
     }
 }
 
 async fn balances(pool: &PgPool) -> Vec<(bool, i64)> {
-    sqlx::query_as("SELECT monthly, cost_microusd FROM agent_budget_periods ORDER BY monthly")
+    sqlx::query_as("SELECT monthly, cost_microusd FROM usage_budget_periods ORDER BY monthly")
         .fetch_all(pool)
         .await
         .unwrap()
@@ -80,18 +83,55 @@ async fn usage_limits_round_trip() {
         .connect_with(connection.clone())
         .await
         .unwrap();
-    MIGRATOR.run(&pool).await.unwrap();
-
-    let first = user(&pool).await;
-    let second = user(&pool).await;
     let limits = UsageConfig {
         daily_tokens: 100,
         ..UsageConfig::default()
     };
+    let b4 = Migrator {
+        migrations: Cow::Owned(
+            MIGRATOR
+                .iter()
+                .filter(|migration| migration.version <= 5)
+                .cloned()
+                .collect(),
+        ),
+        ..Migrator::DEFAULT
+    };
+    b4.run(&pool).await.unwrap();
+    let previous_user = user(&pool).await;
+    let previous_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO agent_usage_reservations (id, user_id, utc_day, reserved_tokens, reserved_cost_microusd)
+         VALUES ($1, $2, (now() AT TIME ZONE 'UTC')::date, 7, 0)",
+    )
+    .bind(previous_id)
+    .bind(previous_user)
+    .execute(&pool)
+    .await
+    .unwrap();
+    MIGRATOR.run(&pool).await.unwrap();
+    assert_eq!(
+        current(&pool, limits, previous_user)
+            .await
+            .unwrap()
+            .llm_tokens_remaining,
+        93
+    );
+    settle(&pool, previous_id, charge(2, 0)).await.unwrap();
+    assert_eq!(
+        current(&pool, limits, previous_user)
+            .await
+            .unwrap()
+            .llm_tokens_remaining,
+        98
+    );
+
+    let first = user(&pool).await;
+    let second = user(&pool).await;
     let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
     let (left, right) = tokio::join!(
-        reserve(&pool, limits, first, a, charge(80, 0)),
-        reserve(&pool, limits, first, b, charge(80, 0)),
+        reserve(&pool, limits, first, a, Work::Agent, charge(80, 0)),
+        reserve(&pool, limits, first, b, Work::Agent, charge(80, 0)),
     );
     let held = match (left, right) {
         (Ok(()), Err(UsageError::QuotaExceeded)) => a,
@@ -139,7 +179,7 @@ async fn usage_limits_round_trip() {
             .llm_tokens_remaining,
         70
     );
-    sqlx::query("UPDATE agent_usage_reservations SET utc_day = utc_day - 1 WHERE id = $1")
+    sqlx::query("UPDATE usage_reservations SET utc_day = utc_day - 1 WHERE id = $1")
         .bind(held)
         .execute(&pool)
         .await
@@ -160,8 +200,8 @@ async fn usage_limits_round_trip() {
     };
     let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
     let (left, right) = tokio::join!(
-        reserve(&pool, paid, first, a, charge(40, 60)),
-        reserve(&pool, paid, second, b, charge(40, 60)),
+        reserve(&pool, paid, first, a, Work::Agent, charge(40, 60)),
+        reserve(&pool, paid, second, b, Work::Agent, charge(40, 60)),
     );
     let (winner, owner) = match (left, right) {
         (Ok(()), Err(UsageError::BudgetExhausted)) => (a, first),
@@ -181,7 +221,15 @@ async fn usage_limits_round_trip() {
         ..paid
     };
     assert_eq!(
-        reserve(&pool, low_month, first, Uuid::new_v4(), charge(5, 30)).await,
+        reserve(
+            &pool,
+            low_month,
+            first,
+            Uuid::new_v4(),
+            Work::Agent,
+            charge(5, 30)
+        )
+        .await,
         Err(UsageError::BudgetExhausted)
     );
     assert_eq!(balances(&pool).await, [(false, 20), (true, 20)]);
@@ -192,7 +240,7 @@ async fn usage_limits_round_trip() {
         .unwrap();
     assert_eq!(
         sqlx::query_scalar::<_, Option<Uuid>>(
-            "SELECT user_id FROM agent_usage_reservations WHERE id = $1"
+            "SELECT user_id FROM usage_reservations WHERE id = $1"
         )
         .bind(winner)
         .fetch_one(&pool)
@@ -256,3 +304,4 @@ async fn usage_limits_round_trip() {
         .await
         .unwrap();
 }
+use std::borrow::Cow;

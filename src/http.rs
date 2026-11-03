@@ -8,6 +8,7 @@ use axum::{
     response::Response,
     routing::get,
 };
+use moby_protocol::ApiError;
 use serde::Serialize;
 use sqlx::PgPool;
 use tracing::{Instrument, info, info_span};
@@ -23,7 +24,52 @@ use crate::{
     agent::{self, circuit::Circuit},
     config::AccountConfig,
     google, profile, sessions,
+    usage::UsageError,
+    voice,
 };
+
+pub(crate) mod schema;
+
+pub(crate) type ApiFailure = (StatusCode, Json<ApiError>);
+
+pub(crate) fn api_error(code: &str, message: &str, request_id: String) -> ApiError {
+    ApiError {
+        code: code.into(),
+        message: message.into(),
+        request_id,
+    }
+}
+
+pub(crate) fn usage_failure(error: UsageError, request_id: String) -> ApiFailure {
+    let (status, code, message) = match error {
+        UsageError::Unauthorized => (
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "A verified session is required",
+        ),
+        UsageError::VoiceConsentRequired => (
+            StatusCode::FORBIDDEN,
+            "voice_consent_required",
+            "Accept the current cloud_voice policy",
+        ),
+        UsageError::QuotaExceeded => (
+            StatusCode::TOO_MANY_REQUESTS,
+            "quota_exceeded",
+            "The request exceeds the remaining daily quota",
+        ),
+        UsageError::BudgetExhausted => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "service_budget_exhausted",
+            "The service budget is exhausted",
+        ),
+        UsageError::Unavailable => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "usage_unavailable",
+            "Usage could not be checked",
+        ),
+    };
+    (status, Json(api_error(code, message, request_id)))
+}
 
 #[derive(Clone)]
 pub(crate) struct RequestId(pub String);
@@ -72,6 +118,7 @@ pub fn openapi() -> OpenApiDocument {
     document.merge(profile::routes::ProfileDoc::openapi());
     document.merge(google::routes::GoogleDoc::openapi());
     agent::routes::add_openapi(&mut document);
+    voice::add_openapi(&mut document);
     document
 }
 
@@ -101,6 +148,7 @@ pub fn router_with_usage(
         .merge(profile::routes::router())
         .merge(google::routes::router())
         .merge(agent::routes::router())
+        .merge(voice::router())
         .with_state(AppState {
             pool,
             accounts,

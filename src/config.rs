@@ -112,16 +112,25 @@ impl UsageConfig {
         let agent_enabled = env_or("MOBY_AGENT_ENABLED", "true")?
             .parse()
             .map_err(|_| "MOBY_AGENT_ENABLED must be true or false")?;
-        let daily_tokens = env_or("MOBY_LLM_DAILY_TOKENS", &defaults.daily_tokens.to_string())?
+        let voice_enabled = env_or("MOBY_VOICE_ENABLED", "false")?
             .parse()
-            .map_err(|_| "MOBY_LLM_DAILY_TOKENS must be a nonnegative u32")?;
+            .map_err(|_| "MOBY_VOICE_ENABLED must be true or false")?;
         Ok(Self {
             agent_enabled,
-            daily_tokens,
+            voice_enabled,
+            daily_tokens: quota("MOBY_LLM_DAILY_TOKENS", defaults.daily_tokens)?,
+            daily_stt_seconds: quota("MOBY_STT_DAILY_SECONDS", defaults.daily_stt_seconds)?,
+            daily_tts_chars: quota("MOBY_TTS_DAILY_CHARS", defaults.daily_tts_chars)?,
             daily_budget_microusd: budget("MOBY_LLM_DAILY_BUDGET_MICROUSD")?,
             monthly_budget_microusd: budget("MOBY_LLM_MONTHLY_BUDGET_MICROUSD")?,
         })
     }
+}
+
+fn quota(name: &'static str, default: u32) -> Result<u32, &'static str> {
+    env_or(name, &default.to_string())?
+        .parse()
+        .map_err(|_| name)
 }
 
 fn budget(name: &'static str) -> Result<i64, &'static str> {
