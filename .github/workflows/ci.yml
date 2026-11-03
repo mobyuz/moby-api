@@ -77,6 +77,11 @@ jobs:
           SQLX_OFFLINE: 'true'
           MOBY_GOOGLE_TEST_DATABASE_URL: postgres://moby:moby_dev@127.0.0.1:55432/moby?sslmode=disable
         run: cargo test --locked --lib google::tests::google_round_trip -- --ignored
+      - name: PostgreSQL usage reservations and budget limits
+        env:
+          SQLX_OFFLINE: 'true'
+          MOBY_USAGE_TEST_DATABASE_URL: postgres://moby:moby_dev@127.0.0.1:55432/moby?sslmode=disable
+        run: cargo test --locked --lib usage_ -- --ignored
       - name: Logs on failure
         if: failure()
         run: docker compose logs --no-color

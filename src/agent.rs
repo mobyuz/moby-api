@@ -12,24 +12,46 @@ use moby_protocol::{
     AgentMessage, AgentTurnRequest, AgentTurnResponse, ApiError, ResourceKind, StableId, ToolCall,
     ToolName, ToolRequest, ToolResult,
 };
+use sqlx::PgPool;
 use tokio::time::{Instant, timeout_at};
+use uuid::Uuid;
 
+use crate::usage::{self, Charge};
+
+pub(crate) mod circuit;
 mod mock;
 pub(crate) mod routes;
 #[cfg(test)]
 mod tests;
 
 pub(crate) const TURN_TIMEOUT: Duration = Duration::from_secs(15);
-const SYSTEM_PROMPT: &str = include_str!("agent/prompts/v1.txt");
+pub(crate) const SYSTEM_PROMPT: &str = include_str!("agent/prompts/v1.txt");
 const MAX_MESSAGES: usize = 64;
 const MAX_RESOURCES: usize = 64;
 const MAX_TEXT_BYTES: usize = 8 * 1024;
 const MAX_DELTAS: usize = 32;
 
-type ProviderStream = BoxStream<'static, AgentTurnResponse>;
+pub(crate) type ProviderStream = BoxStream<'static, ProviderEvent>;
+
+pub(crate) struct ProviderEvent {
+    pub(crate) response: AgentTurnResponse,
+    pub(crate) charge: Option<Charge>,
+}
+
+impl From<AgentTurnResponse> for ProviderEvent {
+    fn from(response: AgentTurnResponse) -> Self {
+        Self {
+            response,
+            charge: None,
+        }
+    }
+}
 
 pub(crate) trait LlmProvider {
+    fn estimate(&self, request: &AgentTurnRequest, prompt: &str) -> Charge;
+
     // The returned stream owns any provider work, which ends when it is dropped.
+    // Report exact usage on the terminal event when the provider knows it.
     fn stream(&self, request: Arc<AgentTurnRequest>, prompt: &'static str) -> ProviderStream;
 }
 
@@ -136,6 +158,12 @@ fn advertised(request: &AgentTurnRequest, tool: &ToolRequest) -> bool {
     resources_valid && request.available_tools.contains(&name)
 }
 
+pub(crate) struct Accounting {
+    pub(crate) pool: PgPool,
+    pub(crate) id: Uuid,
+    pub(crate) permit: circuit::Permit,
+}
+
 struct Turn {
     provider: ProviderStream,
     request: Arc<AgentTurnRequest>,
@@ -143,6 +171,7 @@ struct Turn {
     deadline: Instant,
     speech_bytes: usize,
     deltas: usize,
+    accounting: Option<Accounting>,
 }
 
 impl Turn {
@@ -152,45 +181,74 @@ impl Turn {
         } else {
             timeout_at(self.deadline, self.provider.next()).await.ok()
         };
-        let error = match next {
-            Some(Some(AgentTurnResponse::SpeechDelta { text })) => {
+        let (response, charge) = match next {
+            Some(Some(event)) => (self.validate_output(event.response), event.charge),
+            Some(None) => (
+                self.error("provider_unavailable", "Agent response was interrupted"),
+                None,
+            ),
+            None => (
+                self.error("agent_timeout", "Agent response timed out"),
+                None,
+            ),
+        };
+        if !matches!(response, AgentTurnResponse::SpeechDelta { .. })
+            && let Some(accounting) = self.accounting.take()
+        {
+            accounting.permit.finish(
+                !matches!(response, AgentTurnResponse::Error { .. }),
+                Instant::now(),
+            );
+            if let Some(charge) = charge
+                && usage::settle(&accounting.pool, accounting.id, charge)
+                    .await
+                    .is_err()
+            {
+                return self.error("usage_unavailable", "Agent usage could not be settled");
+            }
+        }
+        response
+    }
+
+    fn validate_output(&mut self, response: AgentTurnResponse) -> AgentTurnResponse {
+        let error = match response {
+            AgentTurnResponse::SpeechDelta { ref text } => {
                 self.deltas += 1;
                 self.speech_bytes += text.len();
                 if self.deltas <= MAX_DELTAS && self.speech_bytes <= MAX_TEXT_BYTES {
-                    return AgentTurnResponse::SpeechDelta { text };
+                    return response;
                 }
                 (
                     "invalid_provider_output",
                     "Agent response exceeded its limits",
                 )
             }
-            Some(Some(AgentTurnResponse::ToolCall { call })) if self.valid_tool_call(&call) => {
-                return AgentTurnResponse::ToolCall { call };
+            AgentTurnResponse::ToolCall { ref call } if self.valid_tool_call(call) => {
+                return response;
             }
-            Some(Some(AgentTurnResponse::Completed {
-                speech_text,
-                display_text,
-                expression_hint,
-            })) if valid_text(&speech_text)
+            AgentTurnResponse::Completed {
+                ref speech_text,
+                ref display_text,
+                ..
+            } if valid_text(speech_text)
                 && display_text.as_ref().is_none_or(|text| valid_text(text)) =>
             {
-                return AgentTurnResponse::Completed {
-                    speech_text,
-                    display_text,
-                    expression_hint,
-                };
+                return response;
             }
-            Some(Some(AgentTurnResponse::Error { .. }) | None) => {
+            AgentTurnResponse::Error { .. } => {
                 ("provider_unavailable", "Agent response was interrupted")
             }
-            Some(Some(_)) => (
+            _ => (
                 "invalid_provider_output",
                 "Agent response failed validation",
             ),
-            None => ("agent_timeout", "Agent response timed out"),
         };
+        self.error(error.0, error.1)
+    }
+
+    fn error(&self, code: &str, message: &str) -> AgentTurnResponse {
         AgentTurnResponse::Error {
-            error: api_error(error.0, error.1, self.request_id.clone()),
+            error: api_error(code, message, self.request_id.clone()),
         }
     }
 
@@ -205,6 +263,7 @@ pub(crate) fn sse(
     request: AgentTurnRequest,
     request_id: String,
     timeout: Duration,
+    accounting: Option<Accounting>,
 ) -> Response {
     let request = Arc::new(request);
     let deadline = Instant::now() + timeout;
@@ -215,6 +274,7 @@ pub(crate) fn sse(
         deadline,
         speech_bytes: 0,
         deltas: 0,
+        accounting,
     };
     Sse::new(stream::unfold(Some(turn), |turn| async {
         let mut turn = turn?;

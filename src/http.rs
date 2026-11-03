@@ -18,9 +18,9 @@ use utoipa::{
 use uuid::Uuid;
 
 use crate::{
-    AccessKeys, Google, MIGRATOR,
+    AccessKeys, Google, MIGRATOR, UsageConfig,
     accounts::{Accounts, routes},
-    agent,
+    agent::{self, circuit::Circuit},
     config::AccountConfig,
     google, profile, sessions,
 };
@@ -34,6 +34,8 @@ pub(crate) struct AppState {
     pub(crate) accounts: Accounts,
     pub(crate) access_keys: AccessKeys,
     pub(crate) google: Option<Google>,
+    pub(crate) usage: UsageConfig,
+    pub(crate) agent_circuit: Circuit,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -79,6 +81,16 @@ pub fn router(
     access_keys: AccessKeys,
     google: Option<Google>,
 ) -> Router {
+    router_with_usage(pool, config, access_keys, google, UsageConfig::default())
+}
+
+pub fn router_with_usage(
+    pool: PgPool,
+    config: AccountConfig,
+    access_keys: AccessKeys,
+    google: Option<Google>,
+    usage: UsageConfig,
+) -> Router {
     let accounts = Accounts::new(pool.clone(), config);
     Router::new()
         .route("/health", get(health))
@@ -94,6 +106,8 @@ pub fn router(
             accounts,
             access_keys,
             google,
+            usage,
+            agent_circuit: Circuit::default(),
         })
         .layer(middleware::from_fn(trace_request))
 }

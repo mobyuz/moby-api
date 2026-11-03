@@ -6,15 +6,27 @@ use std::{
 };
 
 use axum::body::{Body, HttpBody, to_bytes};
-use futures_util::{StreamExt, stream, task::noop_waker_ref};
+use futures_util::{
+    StreamExt,
+    stream::{self, BoxStream},
+    task::noop_waker_ref,
+};
 use moby_protocol::{AgentTurnRequest, AgentTurnResponse};
 use serde_json::{Value, json};
 
-use super::{LlmProvider, ProviderStream, TURN_TIMEOUT, sse, validate};
+use super::{Accounting, LlmProvider, ProviderStream, TURN_TIMEOUT, sse, validate};
+use crate::usage::Charge;
 
 struct TestProvider(Mutex<Option<ProviderStream>>);
 
 impl LlmProvider for TestProvider {
+    fn estimate(&self, _: &AgentTurnRequest, _: &str) -> Charge {
+        Charge {
+            tokens: 1,
+            cost_microusd: 0,
+        }
+    }
+
     fn stream(&self, _: Arc<AgentTurnRequest>, prompt: &'static str) -> ProviderStream {
         assert!(prompt.starts_with("Moby agent prompt v1"));
         self.0.lock().unwrap().take().unwrap()
@@ -30,12 +42,17 @@ fn request() -> AgentTurnRequest {
     .unwrap()
 }
 
-fn output(upstream: ProviderStream, timeout: Duration) -> Body {
+fn output(
+    upstream: BoxStream<'static, AgentTurnResponse>,
+    timeout: Duration,
+    accounting: Option<Accounting>,
+) -> Body {
     sse(
-        &TestProvider(Mutex::new(Some(upstream))),
+        &TestProvider(Mutex::new(Some(upstream.map(Into::into).boxed()))),
         request(),
         "test-request".into(),
         timeout,
+        accounting,
     )
     .into_body()
 }
@@ -71,6 +88,7 @@ async fn provider_tool_must_target_an_advertised_resource() {
         ])
         .boxed(),
         TURN_TIMEOUT,
+        None,
     ))
     .await;
     assert_eq!(result.len(), 1);
@@ -96,7 +114,7 @@ async fn timeout_and_premature_end_have_one_terminal_error() {
             "provider_unavailable",
         ),
     ] {
-        let result = events(output(upstream, Duration::from_millis(100))).await;
+        let result = events(output(upstream, Duration::from_millis(100), None)).await;
         assert_eq!(result.len(), 2);
         assert_eq!(result[0]["event"], "speech_delta");
         assert_eq!(result[1]["event"], "error");
@@ -115,7 +133,7 @@ async fn dropping_sse_body_cancels_pending_provider() {
         Poll::Pending
     }))
     .boxed();
-    let mut body = output(upstream, TURN_TIMEOUT);
+    let mut body = output(upstream, TURN_TIMEOUT, None);
     let mut context = Context::from_waker(noop_waker_ref());
     assert!(matches!(
         Pin::new(&mut body).poll_frame(&mut context),
@@ -131,6 +149,98 @@ async fn dropping_sse_body_cancels_pending_provider() {
         canceled.try_recv(),
         Err(tokio::sync::oneshot::error::TryRecvError::Closed)
     ));
+}
+
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL database in MOBY_USAGE_TEST_DATABASE_URL"]
+async fn usage_holds_survive_timeout_and_disconnect() {
+    use sqlx::postgres::PgPoolOptions;
+    use tokio::time::Instant;
+    use uuid::Uuid;
+
+    use super::circuit::Circuit;
+    use crate::{MIGRATOR, UsageConfig, usage};
+
+    let database = std::env::var("MOBY_USAGE_TEST_DATABASE_URL").expect("disposable database URL");
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&database)
+        .await
+        .unwrap();
+    MIGRATOR.run(&pool).await.unwrap();
+    let user = Uuid::new_v4();
+    sqlx::query("INSERT INTO users (id, email, email_verified_at) VALUES ($1, $2, now())")
+        .bind(user)
+        .bind(format!("agent-hold-{user}@example.test"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let circuit = Circuit::default();
+    let limits = UsageConfig {
+        daily_tokens: 200,
+        ..UsageConfig::default()
+    };
+    let estimate = Charge {
+        tokens: 60,
+        cost_microusd: 0,
+    };
+    for disconnect in [false, true] {
+        let id = Uuid::new_v4();
+        usage::reserve(&pool, limits, user, id, estimate)
+            .await
+            .unwrap();
+        let upstream = stream::iter([AgentTurnResponse::SpeechDelta {
+            text: "provisional".into(),
+        }])
+        .chain(stream::pending())
+        .boxed();
+        let timeout = if disconnect {
+            TURN_TIMEOUT
+        } else {
+            Duration::from_millis(100)
+        };
+        let mut body = output(
+            upstream,
+            timeout,
+            Some(Accounting {
+                pool: pool.clone(),
+                id,
+                permit: circuit.enter(Instant::now()).unwrap(),
+            }),
+        );
+        if disconnect {
+            std::future::poll_fn(|context| Pin::new(&mut body).poll_frame(context))
+                .await
+                .unwrap()
+                .unwrap();
+            drop(body);
+        } else {
+            let frames = events(body).await;
+            assert_eq!(frames.last().unwrap()["error"]["code"], "agent_timeout");
+        }
+        assert_eq!(
+            sqlx::query_scalar::<_, Option<i64>>(
+                "SELECT actual_tokens FROM agent_usage_reservations WHERE id = $1"
+            )
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            None
+        );
+    }
+    assert_eq!(
+        usage::current(&pool, limits, user)
+            .await
+            .unwrap()
+            .llm_tokens_remaining,
+        80
+    );
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
 }
 
 #[test]

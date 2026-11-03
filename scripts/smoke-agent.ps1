@@ -59,6 +59,8 @@ $link = Get-AccountEmail $Mailpit $email 'Verify your Moby email'
 [void](Post '/v1/auth/verify-email' @{ token = $link.Token; password = $password } 204)
 $login = Post '/v1/auth/login' @{ email = $email; password = $password } 200
 $token = ($login.Content | ConvertFrom-Json).access_token
+$usageHeaders = @{ Authorization = "Bearer $token" }
+$before = Invoke-RestMethod -Uri "$Api/v1/usage" -Headers $usageHeaders -NoProxy -TimeoutSec 10
 
 $path = '/v1/agent/turn'
 $turn = @{
@@ -69,7 +71,8 @@ $turn = @{
     script = 'latn'
 }
 [void](Post $path $turn 401)
-$events = @(Read-Events (Post $path $turn 200 $token))
+$completion = Post $path $turn 200 $token
+$events = @(Read-Events $completion)
 if (($events.event -join ',') -ne 'speech_delta,completed' -or $events[-1].speech_text -notlike 'Salom!*') {
     throw 'Expected a deterministic text completion'
 }
@@ -101,6 +104,14 @@ $call.request.project_id = 'unadvertised-project'
 $turn.messages = @(@{ kind = 'user'; text = ('a' * (129 * 1024)) })
 [void](Post $path $turn 413 $token)
 
+$after = Invoke-RestMethod -Uri "$Api/v1/usage" -Headers $usageHeaders -NoProxy -TimeoutSec 10
+if (($after.reset_at -eq $before.reset_at) -and ($after.llm_tokens_remaining -ge $before.llm_tokens_remaining)) {
+    throw 'Successful turns did not decrease the account quota'
+}
+$turnId = [Guid]::Parse($completion.Headers['x-request-id'][0]).ToString()
+$settled = docker compose -p $Project exec -T postgres psql -U moby -d moby -At -v ON_ERROR_STOP=1 -c "SELECT (actual_tokens > 0 AND actual_tokens < reserved_tokens AND actual_cost_microusd = 0) FROM agent_usage_reservations WHERE id = '$turnId';"
+if ($LASTEXITCODE -ne 0 -or $settled -ne 't') { throw 'Expected exact zero-cost mock usage to settle' }
+
 $dump = docker compose -p $Project exec -T postgres pg_dump -U moby -d moby --data-only --no-owner
 if ($LASTEXITCODE -ne 0) { throw 'Could not inspect PostgreSQL data' }
 if ($ApiLog) {
@@ -115,4 +126,4 @@ foreach ($marker in @($promptMarker, $toolMarker)) {
     }
 }
 
-Write-Output 'Agent smoke passed: verified login, SSE, tool round trip, validation and content privacy'
+Write-Output 'Agent smoke passed: verified login, SSE, tool round trip, validation, quota settlement and content privacy'

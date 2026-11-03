@@ -134,8 +134,18 @@
               }
             }
           },
+          "429": {
+            "description": "The request exceeds the remaining daily LLM quota",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
           "503": {
-            "description": "Session service unavailable",
+            "description": "Service paused, budget exhausted, circuit open, or session and usage data unavailable",
             "content": {
               "application/json": {
                 "schema": {
@@ -1423,6 +1433,50 @@
           }
         ]
       }
+    },
+    "/v1/usage": {
+      "get": {
+        "summary": "Read the current account's remaining quota",
+        "description": "The daily window resets at midnight UTC. Pending reservations count against the remaining balance.",
+        "operationId": "current_usage",
+        "responses": {
+          "200": {
+            "description": "Remaining quota and the next UTC reset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageInfo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "An active verified session is required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session or usage data unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -2586,6 +2640,40 @@
             ],
             "maxLength": 100,
             "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "UsageInfo": {
+        "type": "object",
+        "title": "UsageInfo",
+        "required": [
+          "llm_tokens_remaining",
+          "stt_seconds_remaining",
+          "tts_chars_remaining",
+          "reset_at"
+        ],
+        "properties": {
+          "llm_tokens_remaining": {
+            "type": "integer",
+            "format": "uint32",
+            "maximum": 4294967295,
+            "minimum": 0
+          },
+          "reset_at": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "stt_seconds_remaining": {
+            "type": "integer",
+            "format": "uint32",
+            "maximum": 4294967295,
+            "minimum": 0
+          },
+          "tts_chars_remaining": {
+            "type": "integer",
+            "format": "uint32",
+            "maximum": 4294967295,
+            "minimum": 0
           }
         },
         "additionalProperties": false

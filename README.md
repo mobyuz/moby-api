@@ -114,6 +114,19 @@ Mock’da `git status` matni uchun `available_tools` ro‘yxatiga `git_status`ni
 
 Limitlar 128 KiB JSON, 64 xabar, 64 resurs, matn yoki vosita natijasi uchun 8 KiB va 15 soniyalik provayder muddati. Mock o‘zbek lotin va kirill, rus hamda ingliz tillarida deterministik javob qaytaradi. Desktop suhbat tarixini saqlaydi. API suhbat va vosita natijalarini so‘rov davomida xotirada ishlatadi. [OpenAPI kontrakti](openapi.json) · [Agent oqimi bo‘yicha ADR](docs/adr/0006-agent-stream.md)
 
+### Kvota va xizmat byudjeti
+
+`GET /v1/usage` faol Bearer sessiyasi uchun qolgan LLM kvotasi va keyingi UTC yarim tunini `reset_at` maydonida qaytaradi. Ovoz kvotalari STT va TTS bosqichigacha 0. Agent provayderga murojaat qilishdan oldin foydalanuvchi kvotasi va xizmat byudjetidan yuqori chegarani band qiladi. Hisobot kelganda ortiqcha bandlov bo‘shaydi. Timeout yoki uzilishda sarf noma’lum qolsa, bandlov o‘z davrida hisoblanadi. Kvota yetmasa `429 quota_exceeded`, byudjet yetmasa `503 service_budget_exhausted` qaytadi.
+
+| Muhit o‘zgaruvchisi | Standart | Ma’nosi |
+| --- | --- | --- |
+| `MOBY_LLM_DAILY_TOKENS` | `250000` | Bir hisobning UTC kunlik LLM kvotasi. Mock matnni deterministik UTF-8 birliklarida hisoblaydi. |
+| `MOBY_LLM_DAILY_BUDGET_MICROUSD` | `0` | Xizmatning UTC kunlik xarajat chegarasi. |
+| `MOBY_LLM_MONTHLY_BUDGET_MICROUSD` | `0` | Xizmatning UTC oylik xarajat chegarasi. |
+| `MOBY_AGENT_ENABLED` | `true` | Agent turnlarini to‘xtatish uchun `false` qilib API’ni qayta ishga tushiring. |
+
+1 USD = 1 000 000 mikroUSD. Mock xarajati 0. Provayder ketma-ket uch marta xato qilsa, servis yangi agent so‘rovlarini 30 soniyaga to‘xtatadi. So‘ng bitta sinov so‘rovi o‘tadi va muvaffaqiyatli javob kelganda trafik ochiladi. [Kvota va bandlov ADR’i](docs/adr/0007-agent-usage.md)
+
 ## Tekshiruvlar
 
 ```powershell
@@ -138,4 +151,6 @@ Toza lokal Compose loyihasi ishga tushganida `pwsh -File scripts/smoke-accounts.
 
 `MOBY_GOOGLE_TEST_DATABASE_URL`ni ajratilgan PostgreSQL bazasiga sozlab, `cargo test --locked --lib google::tests::google_round_trip -- --ignored`ni bajaring. Test Google token va JWKS endpointlarini lokal simulyatsiya qiladi.
 
-`pwsh -File scripts/smoke-agent.ps1 -Project <loyiha-nomi>` tasdiqlangan hisob, SSE matn javobi, `git_status` taklifi, mos natija va sintetik suhbat mazmuni saqlanmasligini tekshiradi.
+`pwsh -File scripts/smoke-agent.ps1 -Project <loyiha-nomi>` tasdiqlangan hisob, SSE javobi, `git_status` oqimi, kvota hisoblanishi va sintetik suhbat mazmuni saqlanmasligini tekshiradi.
+
+`MOBY_USAGE_TEST_DATABASE_URL`ni ajratilgan PostgreSQL bazasiga sozlab, `cargo test --locked --lib usage_ -- --ignored`ni bajaring. Testlar parallel kvota va byudjet bandlovlari, takroriy yakunlash, timeout, uzilish va qayta ulanishni tekshiradi.

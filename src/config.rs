@@ -4,7 +4,7 @@ use lettre::Address;
 use sqlx::{ConnectOptions, postgres::PgConnectOptions};
 use url::Url;
 
-use crate::{AccessKeys, Google};
+use crate::{AccessKeys, Google, UsageConfig};
 
 pub struct Config {
     pub bind_addr: SocketAddr,
@@ -12,6 +12,7 @@ pub struct Config {
     pub accounts: AccountConfig,
     pub access_keys: AccessKeys,
     pub google: Option<Google>,
+    pub usage: UsageConfig,
 }
 
 #[derive(Clone)]
@@ -105,6 +106,32 @@ fn env_or(name: &'static str, default: &str) -> Result<String, &'static str> {
     }
 }
 
+impl UsageConfig {
+    fn from_env() -> Result<Self, &'static str> {
+        let defaults = Self::default();
+        let agent_enabled = env_or("MOBY_AGENT_ENABLED", "true")?
+            .parse()
+            .map_err(|_| "MOBY_AGENT_ENABLED must be true or false")?;
+        let daily_tokens = env_or("MOBY_LLM_DAILY_TOKENS", &defaults.daily_tokens.to_string())?
+            .parse()
+            .map_err(|_| "MOBY_LLM_DAILY_TOKENS must be a nonnegative u32")?;
+        Ok(Self {
+            agent_enabled,
+            daily_tokens,
+            daily_budget_microusd: budget("MOBY_LLM_DAILY_BUDGET_MICROUSD")?,
+            monthly_budget_microusd: budget("MOBY_LLM_MONTHLY_BUDGET_MICROUSD")?,
+        })
+    }
+}
+
+fn budget(name: &'static str) -> Result<i64, &'static str> {
+    env_or(name, "0")?
+        .parse::<i64>()
+        .ok()
+        .filter(|value| *value >= 0)
+        .ok_or(name)
+}
+
 fn policy_version(name: &'static str, default: &str) -> Result<String, &'static str> {
     let value = env_or(name, default)?;
     if !valid_policy_version(&value) {
@@ -147,6 +174,7 @@ impl Config {
             accounts: AccountConfig::from_env()?,
             access_keys: AccessKeys::from_env(bind_addr.ip().is_loopback())?,
             google: Google::from_env()?,
+            usage: UsageConfig::from_env()?,
         })
     }
 }

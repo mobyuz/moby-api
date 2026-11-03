@@ -72,6 +72,13 @@ async fn openapi_endpoint_matches_release_artifact() {
     assert!(served["paths"]["/ready"]["get"]["responses"]["503"].is_object());
     let agent = &served["paths"]["/v1/agent/turn"]["post"];
     assert!(agent["security"][0]["bearer"].is_array());
+    assert!(agent["responses"]["429"].is_object());
+    let usage = &served["paths"]["/v1/usage"]["get"];
+    assert!(usage["security"][0]["bearer"].is_array());
+    assert_eq!(
+        usage["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+        "#/components/schemas/UsageInfo"
+    );
     assert_eq!(
         agent["responses"]["200"]["content"]["text/event-stream"]["x-sse-data-schema"]["$ref"],
         "#/components/schemas/AgentTurnResponse"
