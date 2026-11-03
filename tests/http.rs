@@ -94,6 +94,14 @@ async fn openapi_endpoint_matches_release_artifact() {
         assert!(voice["responses"]["403"].is_object());
         assert!(voice["responses"]["429"].is_object());
     }
+    let demo = &served["paths"]["/v1/demo/chat"]["post"];
+    assert!(demo.get("security").is_none());
+    for status in ["200", "403", "429", "503"] {
+        assert!(demo["responses"][status].is_object());
+    }
+    let demo_reply = &served["components"]["schemas"]["DemoReply"]["properties"];
+    assert!(demo_reply["reply"].is_object());
+    assert!(demo_reply.get("tool_request").is_none());
     assert_eq!(
         agent["responses"]["200"]["content"]["text/event-stream"]["x-sse-data-schema"]["$ref"],
         "#/components/schemas/AgentTurnResponse"

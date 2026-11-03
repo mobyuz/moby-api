@@ -13,3 +13,4 @@
 - Added the authenticated agent SSE endpoint, versioned prompt, deterministic mock, and desktop tool validation.
 - Added `GET /v1/usage`, transactional UTC quota and budget reservations, an agent switch, and a provider circuit breaker.
 - Added bounded WAV transcription and synthesis routes with versioned voice consent, per-modality quotas, and a local mock.
+- Added a guest demo route with Turnstile verification, hashed IP limits, and a separate transactional budget.

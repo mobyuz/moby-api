@@ -19,11 +19,11 @@ use utoipa::{
 use uuid::Uuid;
 
 use crate::{
-    AccessKeys, Google, MIGRATOR, UsageConfig,
+    AccessKeys, Demo, Google, MIGRATOR, UsageConfig,
     accounts::{Accounts, routes},
     agent::{self, circuit::Circuit},
     config::AccountConfig,
-    google, profile, sessions,
+    demo, google, profile, sessions,
     usage::UsageError,
     voice,
 };
@@ -82,6 +82,7 @@ pub(crate) struct AppState {
     pub(crate) google: Option<Google>,
     pub(crate) usage: UsageConfig,
     pub(crate) agent_circuit: Circuit,
+    pub(crate) demo: Option<Demo>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -119,6 +120,7 @@ pub fn openapi() -> OpenApiDocument {
     document.merge(google::routes::GoogleDoc::openapi());
     agent::routes::add_openapi(&mut document);
     voice::add_openapi(&mut document);
+    document.merge(demo::DemoDoc::openapi());
     document
 }
 
@@ -138,6 +140,17 @@ pub fn router_with_usage(
     google: Option<Google>,
     usage: UsageConfig,
 ) -> Router {
+    router_with_demo(pool, config, access_keys, google, usage, None)
+}
+
+pub fn router_with_demo(
+    pool: PgPool,
+    config: AccountConfig,
+    access_keys: AccessKeys,
+    google: Option<Google>,
+    usage: UsageConfig,
+    demo: Option<Demo>,
+) -> Router {
     let accounts = Accounts::new(pool.clone(), config);
     Router::new()
         .route("/health", get(health))
@@ -149,6 +162,7 @@ pub fn router_with_usage(
         .merge(google::routes::router())
         .merge(agent::routes::router())
         .merge(voice::router())
+        .merge(demo::router())
         .with_state(AppState {
             pool,
             accounts,
@@ -156,6 +170,7 @@ pub fn router_with_usage(
             google,
             usage,
             agent_circuit: Circuit::default(),
+            demo,
         })
         .layer(middleware::from_fn(trace_request))
 }

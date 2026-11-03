@@ -1,6 +1,6 @@
 use std::{env, error::Error, net::SocketAddr, time::Duration};
 
-use moby_api::{AccessKeys, MIGRATOR, config::Config, openapi, router_with_usage};
+use moby_api::{AccessKeys, MIGRATOR, config::Config, openapi, router_with_demo};
 use sqlx::postgres::PgPoolOptions;
 use tokio::{net::TcpListener, signal};
 use tracing::{Level, info};
@@ -42,12 +42,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     axum::serve(
         listener,
-        router_with_usage(
+        router_with_demo(
             pool,
             config.accounts,
             config.access_keys,
             config.google,
             config.usage,
+            config.demo,
         )
         .into_make_service_with_connect_info::<SocketAddr>(),
     )

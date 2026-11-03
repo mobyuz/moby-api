@@ -131,6 +131,7 @@ async fn voice_consent_quota_and_locale_round_trip() {
         google: None,
         usage: limits,
         agent_circuit: Default::default(),
+        demo: None,
     };
     let mut auth = Authorized {
         identity: sessions::Identity {

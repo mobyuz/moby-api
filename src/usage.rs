@@ -38,6 +38,13 @@ pub(crate) struct Charge {
 }
 
 #[derive(Clone, Copy)]
+pub(crate) struct DemoBudget {
+    pub(crate) daily_units: u32,
+    pub(crate) daily_cost_microusd: i64,
+    pub(crate) monthly_cost_microusd: i64,
+}
+
+#[derive(Clone, Copy)]
 pub(crate) enum Work<'a> {
     Agent,
     Stt(&'a str),
@@ -157,48 +164,124 @@ pub(crate) async fn reserve(
         return Err(UsageError::QuotaExceeded);
     }
 
-    // Lock daily and monthly budget rows in the same order in reserve and settle.
-    if charge.cost_microusd > 0 {
-        for (period, monthly) in periods(usage.day) {
-            let cap = if monthly {
-                limits.monthly_budget_microusd
-            } else {
-                limits.daily_budget_microusd
-            };
-            if charge.cost_microusd > cap {
-                return Err(UsageError::BudgetExhausted);
-            }
-            let updated = sqlx::query(
-                "INSERT INTO usage_budget_periods (period_start, monthly, cost_microusd)
-                 VALUES ($1, $2, $3)
-                 ON CONFLICT (period_start, monthly) DO UPDATE
-                    SET cost_microusd = usage_budget_periods.cost_microusd + EXCLUDED.cost_microusd
-                    WHERE usage_budget_periods.cost_microusd <= $4 - EXCLUDED.cost_microusd",
-            )
-            .bind(period)
-            .bind(monthly)
-            .bind(charge.cost_microusd)
-            .bind(cap)
-            .execute(&mut *transaction)
-            .await?;
-            if updated.rows_affected() == 0 {
-                return Err(UsageError::BudgetExhausted);
-            }
-        }
+    reserve_budget(
+        &mut transaction,
+        usage.day,
+        limits.daily_budget_microusd,
+        limits.monthly_budget_microusd,
+        None,
+        charge,
+    )
+    .await?;
+    insert_reservation(
+        &mut transaction,
+        id,
+        Some(user),
+        usage.day,
+        work.meter(),
+        charge,
+    )
+    .await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+pub(crate) async fn reserve_demo(
+    pool: &PgPool,
+    limits: DemoBudget,
+    id: Uuid,
+    charge: Charge,
+) -> Result<(), UsageError> {
+    if charge.units == 0 || charge.cost_microusd < 0 {
+        return Err(UsageError::Unavailable);
     }
+    let mut transaction = accounting_transaction(pool).await?;
+    let day =
+        sqlx::query_scalar::<_, Date>("SELECT (statement_timestamp() AT TIME ZONE 'UTC')::date")
+            .fetch_one(&mut *transaction)
+            .await?;
+    reserve_budget(
+        &mut transaction,
+        day,
+        limits.daily_cost_microusd,
+        limits.monthly_cost_microusd,
+        Some(limits.daily_units),
+        charge,
+    )
+    .await?;
+    insert_reservation(&mut transaction, id, None, day, "demo", charge).await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+async fn insert_reservation(
+    transaction: &mut Transaction<'_, Postgres>,
+    id: Uuid,
+    user: Option<Uuid>,
+    day: Date,
+    meter: &str,
+    charge: Charge,
+) -> Result<(), sqlx::Error> {
     sqlx::query(
         "INSERT INTO usage_reservations (id, user_id, utc_day, meter, reserved_units, reserved_cost_microusd)
          VALUES ($1, $2, $3, $4, $5, $6)",
     )
     .bind(id)
     .bind(user)
-    .bind(usage.day)
-    .bind(work.meter())
-    .bind(units)
+    .bind(day)
+    .bind(meter)
+    .bind(i64::from(charge.units))
     .bind(charge.cost_microusd)
-    .execute(&mut *transaction)
+    .execute(&mut **transaction)
     .await?;
-    transaction.commit().await?;
+    Ok(())
+}
+
+async fn reserve_budget(
+    transaction: &mut Transaction<'_, Postgres>,
+    day: Date,
+    daily_cost: i64,
+    monthly_cost: i64,
+    guest_daily_units: Option<u32>,
+    charge: Charge,
+) -> Result<(), UsageError> {
+    let guest = guest_daily_units.is_some();
+    // Reserve and settle acquire the daily bucket before the monthly bucket.
+    for (period, monthly) in periods(day) {
+        let (units, unit_cap) = match (monthly, guest_daily_units) {
+            (false, Some(cap)) => (i64::from(charge.units), i64::from(cap)),
+            _ => (0, 0),
+        };
+        let cost = charge.cost_microusd;
+        if units == 0 && cost == 0 {
+            continue;
+        }
+        let cost_cap = if monthly { monthly_cost } else { daily_cost };
+        if units > unit_cap || cost > cost_cap {
+            return Err(UsageError::BudgetExhausted);
+        }
+        let updated = sqlx::query(
+            "INSERT INTO usage_budget_periods (period_start, monthly, guest, cost_microusd, units)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (period_start, monthly, guest) DO UPDATE
+                SET cost_microusd = usage_budget_periods.cost_microusd + EXCLUDED.cost_microusd,
+                    units = usage_budget_periods.units + EXCLUDED.units
+                WHERE usage_budget_periods.cost_microusd <= $6 - EXCLUDED.cost_microusd
+                  AND usage_budget_periods.units <= $7 - EXCLUDED.units",
+        )
+        .bind(period)
+        .bind(monthly)
+        .bind(guest)
+        .bind(cost)
+        .bind(units)
+        .bind(cost_cap)
+        .bind(unit_cap)
+        .execute(&mut **transaction)
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Err(UsageError::BudgetExhausted);
+        }
+    }
     Ok(())
 }
 
@@ -209,12 +292,14 @@ struct Reservation {
     reserved_cost_microusd: i64,
     actual_units: Option<i64>,
     actual_cost_microusd: Option<i64>,
+    guest: bool,
 }
 
 pub(crate) async fn settle(pool: &PgPool, id: Uuid, charge: Charge) -> Result<(), UsageError> {
     let mut transaction = accounting_transaction(pool).await?;
     let reservation = sqlx::query_as::<_, Reservation>(
-        "SELECT utc_day, reserved_units, reserved_cost_microusd, actual_units, actual_cost_microusd
+        "SELECT utc_day, reserved_units, reserved_cost_microusd, actual_units, actual_cost_microusd,
+                meter = 'demo' AS guest
          FROM usage_reservations WHERE id = $1 FOR UPDATE",
     )
     .bind(id)
@@ -234,21 +319,30 @@ pub(crate) async fn settle(pool: &PgPool, id: Uuid, charge: Charge) -> Result<()
         return Err(UsageError::Unavailable);
     }
 
-    let refund = reservation.reserved_cost_microusd - charge.cost_microusd;
-    if refund > 0 {
-        for (period, monthly) in periods(reservation.utc_day) {
-            let updated = sqlx::query(
-                "UPDATE usage_budget_periods SET cost_microusd = cost_microusd - $3
-                 WHERE period_start = $1 AND monthly = $2 AND cost_microusd >= $3",
-            )
-            .bind(period)
-            .bind(monthly)
-            .bind(refund)
-            .execute(&mut *transaction)
-            .await?;
-            if updated.rows_affected() != 1 {
-                return Err(UsageError::Unavailable);
-            }
+    let cost_refund = reservation.reserved_cost_microusd - charge.cost_microusd;
+    for (period, monthly) in periods(reservation.utc_day) {
+        let units_refund = if reservation.guest && !monthly {
+            reservation.reserved_units - units
+        } else {
+            0
+        };
+        if units_refund == 0 && cost_refund == 0 {
+            continue;
+        }
+        let updated = sqlx::query(
+            "UPDATE usage_budget_periods SET cost_microusd = cost_microusd - $4, units = units - $5
+             WHERE period_start = $1 AND monthly = $2 AND guest = $3
+               AND cost_microusd >= $4 AND units >= $5",
+        )
+        .bind(period)
+        .bind(monthly)
+        .bind(reservation.guest)
+        .bind(cost_refund)
+        .bind(units_refund)
+        .execute(&mut *transaction)
+        .await?;
+        if updated.rows_affected() != 1 {
+            return Err(UsageError::Unavailable);
         }
     }
     sqlx::query(

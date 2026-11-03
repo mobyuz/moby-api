@@ -1034,6 +1034,104 @@
         ]
       }
     },
+    "/v1/demo/chat": {
+      "post": {
+        "tags": [],
+        "operationId": "chat",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DemoRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Short guest reply",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DemoReply"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid text, token or JSON",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Bot verification rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request exceeds 8 KiB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Guest IP rate limit reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Guest provider failed or returned invalid output",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Demo disabled, verification unavailable or guest budget exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Guest provider timed out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/installations": {
       "get": {
         "tags": [],
@@ -2113,6 +2211,38 @@
             "$ref": "#/components/schemas/Proof"
           }
         ]
+      },
+      "DemoReply": {
+        "type": "object",
+        "required": [
+          "reply"
+        ],
+        "properties": {
+          "reply": {
+            "type": "string",
+            "maxLength": 240
+          }
+        }
+      },
+      "DemoRequest": {
+        "type": "object",
+        "required": [
+          "text",
+          "bot_token"
+        ],
+        "properties": {
+          "bot_token": {
+            "type": "string",
+            "maxLength": 2048,
+            "minLength": 1
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 280,
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
       },
       "ErrorBody": {
         "type": "object",

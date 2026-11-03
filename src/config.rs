@@ -4,7 +4,7 @@ use lettre::Address;
 use sqlx::{ConnectOptions, postgres::PgConnectOptions};
 use url::Url;
 
-use crate::{AccessKeys, Google, UsageConfig};
+use crate::{AccessKeys, Demo, Google, UsageConfig, usage::DemoBudget};
 
 pub struct Config {
     pub bind_addr: SocketAddr,
@@ -13,6 +13,7 @@ pub struct Config {
     pub access_keys: AccessKeys,
     pub google: Option<Google>,
     pub usage: UsageConfig,
+    pub demo: Option<Demo>,
 }
 
 #[derive(Clone)]
@@ -141,6 +142,28 @@ fn budget(name: &'static str) -> Result<i64, &'static str> {
         .ok_or(name)
 }
 
+fn demo_from_env() -> Result<Option<Demo>, &'static str> {
+    let enabled: bool = env_or("MOBY_DEMO_ENABLED", "false")?
+        .parse()
+        .map_err(|_| "MOBY_DEMO_ENABLED must be true or false")?;
+    if !enabled {
+        return Ok(None);
+    }
+    let secret = env::var("MOBY_TURNSTILE_SECRET_KEY")
+        .map_err(|_| "MOBY_TURNSTILE_SECRET_KEY is required")?;
+    let hostname = env::var("MOBY_DEMO_HOSTNAME").map_err(|_| "MOBY_DEMO_HOSTNAME is required")?;
+    let ip_limit = quota("MOBY_DEMO_REQUESTS_PER_15_MINUTES", 12)?;
+    if !(1..=1000).contains(&ip_limit) {
+        return Err("MOBY_DEMO_REQUESTS_PER_15_MINUTES must be between 1 and 1000");
+    }
+    let budget = DemoBudget {
+        daily_units: quota("MOBY_DEMO_DAILY_TOKENS", 60_000)?,
+        daily_cost_microusd: budget("MOBY_DEMO_DAILY_BUDGET_MICROUSD")?,
+        monthly_cost_microusd: budget("MOBY_DEMO_MONTHLY_BUDGET_MICROUSD")?,
+    };
+    Demo::new(secret, &hostname, budget, ip_limit as i32).map(Some)
+}
+
 fn policy_version(name: &'static str, default: &str) -> Result<String, &'static str> {
     let value = env_or(name, default)?;
     if !valid_policy_version(&value) {
@@ -184,6 +207,7 @@ impl Config {
             access_keys: AccessKeys::from_env(bind_addr.ip().is_loopback())?,
             google: Google::from_env()?,
             usage: UsageConfig::from_env()?,
+            demo: demo_from_env()?,
         })
     }
 }

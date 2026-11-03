@@ -87,6 +87,11 @@ jobs:
           SQLX_OFFLINE: 'true'
           MOBY_VOICE_TEST_DATABASE_URL: postgres://moby:moby_dev@127.0.0.1:55432/moby?sslmode=disable
         run: cargo test --locked --lib voice::tests::voice_consent_quota_and_locale_round_trip -- --ignored
+      - name: Guest demo bot verification, rate and budget
+        env:
+          SQLX_OFFLINE: 'true'
+          MOBY_DEMO_TEST_DATABASE_URL: postgres://moby:moby_dev@127.0.0.1:55432/moby?sslmode=disable
+        run: cargo test --locked --lib demo::tests::guest_bot_rate_and_budget_round_trip -- --ignored
       - name: Logs on failure
         if: failure()
         run: docker compose logs --no-color

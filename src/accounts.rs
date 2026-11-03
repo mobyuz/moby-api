@@ -408,7 +408,7 @@ pub(crate) async fn clear_email_rate_limits(
     Ok(())
 }
 
-async fn hit_bucket(pool: &PgPool, key: &str, limit: i32) -> Result<(), AuthError> {
+pub(crate) async fn hit_bucket(pool: &PgPool, key: &str, limit: i32) -> Result<(), AuthError> {
     let count = sqlx::query_scalar!(
         "INSERT INTO auth_rate_limits (bucket, hits, reset_at) VALUES ($1, 1, now() + interval '15 minutes')
          ON CONFLICT (bucket) DO UPDATE SET
