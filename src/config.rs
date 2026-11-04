@@ -4,7 +4,7 @@ use lettre::Address;
 use sqlx::{ConnectOptions, postgres::PgConnectOptions};
 use url::Url;
 
-use crate::{AccessKeys, Demo, Google, UsageConfig, usage::DemoBudget};
+use crate::{AccessKeys, Demo, Google, Llm, UsageConfig, agent::Providers, usage::DemoBudget};
 
 pub struct Config {
     pub bind_addr: SocketAddr,
@@ -13,6 +13,7 @@ pub struct Config {
     pub access_keys: AccessKeys,
     pub google: Option<Google>,
     pub usage: UsageConfig,
+    pub llm: Llm,
     pub demo: Option<Demo>,
 }
 
@@ -142,7 +143,15 @@ fn budget(name: &'static str) -> Result<i64, &'static str> {
         .ok_or(name)
 }
 
-fn demo_from_env() -> Result<Option<Demo>, &'static str> {
+fn env_lookup(name: &'static str) -> Result<Option<String>, &'static str> {
+    match env::var(name) {
+        Ok(value) => Ok(Some(value)),
+        Err(env::VarError::NotPresent) => Ok(None),
+        Err(env::VarError::NotUnicode(_)) => Err(name),
+    }
+}
+
+fn demo_from_env(provider: Llm) -> Result<Option<Demo>, &'static str> {
     let enabled: bool = env_or("MOBY_DEMO_ENABLED", "false")?
         .parse()
         .map_err(|_| "MOBY_DEMO_ENABLED must be true or false")?;
@@ -161,7 +170,7 @@ fn demo_from_env() -> Result<Option<Demo>, &'static str> {
         daily_cost_microusd: budget("MOBY_DEMO_DAILY_BUDGET_MICROUSD")?,
         monthly_cost_microusd: budget("MOBY_DEMO_MONTHLY_BUDGET_MICROUSD")?,
     };
-    Demo::new(secret, &hostname, budget, ip_limit as i32).map(Some)
+    Demo::new(secret, &hostname, budget, ip_limit as i32, provider).map(Some)
 }
 
 fn policy_version(name: &'static str, default: &str) -> Result<String, &'static str> {
@@ -200,6 +209,7 @@ impl Config {
             .map_err(|_| "DATABASE_URL must be a valid PostgreSQL URL")?
             .disable_statement_logging();
 
+        let providers = Providers::from_lookup(&env_lookup)?;
         Ok(Self {
             bind_addr,
             database,
@@ -207,7 +217,8 @@ impl Config {
             access_keys: AccessKeys::from_env(bind_addr.ip().is_loopback())?,
             google: Google::from_env()?,
             usage: UsageConfig::from_env()?,
-            demo: demo_from_env()?,
+            llm: providers.agent,
+            demo: demo_from_env(providers.demo)?,
         })
     }
 }

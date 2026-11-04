@@ -19,7 +19,7 @@ use utoipa::{
 use uuid::Uuid;
 
 use crate::{
-    AccessKeys, Demo, Google, MIGRATOR, UsageConfig,
+    AccessKeys, Demo, Google, Llm, MIGRATOR, UsageConfig,
     accounts::{Accounts, routes},
     agent::{self, circuit::Circuit},
     config::AccountConfig,
@@ -82,6 +82,7 @@ pub(crate) struct AppState {
     pub(crate) google: Option<Google>,
     pub(crate) usage: UsageConfig,
     pub(crate) agent_circuit: Circuit,
+    pub(crate) llm: Llm,
     pub(crate) demo: Option<Demo>,
 }
 
@@ -151,6 +152,18 @@ pub fn router_with_demo(
     usage: UsageConfig,
     demo: Option<Demo>,
 ) -> Router {
+    router_with_llm(pool, config, access_keys, google, usage, demo, Llm::mock())
+}
+
+pub fn router_with_llm(
+    pool: PgPool,
+    config: AccountConfig,
+    access_keys: AccessKeys,
+    google: Option<Google>,
+    usage: UsageConfig,
+    demo: Option<Demo>,
+    llm: Llm,
+) -> Router {
     let accounts = Accounts::new(pool.clone(), config);
     Router::new()
         .route("/health", get(health))
@@ -170,6 +183,7 @@ pub fn router_with_demo(
             google,
             usage,
             agent_circuit: Circuit::default(),
+            llm,
             demo,
         })
         .layer(middleware::from_fn(trace_request))

@@ -169,7 +169,7 @@ async fn guest_bot_rate_and_budget_round_trip() {
     );
 
     let text = "git status";
-    let estimate = MockProvider.estimate(
+    let estimate = Llm::mock().estimate(
         &AgentTurnRequest {
             messages: vec![AgentMessage::User { text: text.into() }],
             available_tools: vec![],
@@ -187,6 +187,7 @@ async fn guest_bot_rate_and_budget_round_trip() {
             monthly_cost_microusd: 0,
         },
         ip_limit: 2,
+        provider: Llm::mock(),
     };
     let keys = AccessKeys::ephemeral().unwrap();
     let app = router_with_demo(

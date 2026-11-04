@@ -10,6 +10,7 @@ use futures_util::StreamExt;
 use moby_protocol::{AgentMessage, AgentTurnRequest, AgentTurnResponse};
 use serde::{Deserialize, Serialize};
 use tokio::time::timeout;
+use tracing::warn;
 use utoipa::{OpenApi, ToSchema};
 use uuid::Uuid;
 
@@ -18,7 +19,7 @@ use crate::{
         AuthError, hit_bucket,
         routes::{Client, ErrorBody},
     },
-    agent::{LlmProvider, MockProvider},
+    agent::{Llm, LlmProvider},
     http::{ApiFailure, AppState, api_error},
     usage::{self, DemoBudget, UsageError},
 };
@@ -34,13 +35,16 @@ const MAX_TEXT_CHARS: usize = 280;
 const MAX_TOKEN_BYTES: usize = 2048;
 const MAX_REPLY_CHARS: usize = 240;
 const PROVIDER_TIMEOUT: Duration = Duration::from_secs(8);
-const SYSTEM_PROMPT: &str = include_str!("demo/prompts/v1.txt");
+const SYSTEM_PROMPT: &str = include_str!("demo/prompts/v2.txt");
+// A guest reply is one short completion, so far fewer events than this are expected.
+const MAX_PROVIDER_EVENTS: usize = 64;
 
 #[derive(Clone)]
 pub struct Demo {
     bot: Turnstile,
     budget: DemoBudget,
     ip_limit: i32,
+    provider: Llm,
 }
 
 impl Demo {
@@ -49,11 +53,13 @@ impl Demo {
         hostname: &str,
         budget: DemoBudget,
         ip_limit: i32,
+        provider: Llm,
     ) -> Result<Self, &'static str> {
         Ok(Self {
             bot: Turnstile::new(secret, hostname)?,
             budget,
             ip_limit,
+            provider,
         })
     }
 }
@@ -184,7 +190,7 @@ async fn chat(
         language: None,
         script: None,
     });
-    let provider = MockProvider;
+    let provider = &demo.provider;
     usage::reserve_demo(
         &state.pool,
         demo.budget,
@@ -204,31 +210,47 @@ async fn chat(
             "Could not reserve the guest demo budget",
         ),
     })?;
+    if usage::label(&state.pool, id, &provider.route())
+        .await
+        .is_err()
+    {
+        warn!(request_id = %client.request_id, "usage route could not be recorded");
+    }
+    // Dropping the stream cancels the provider request.
     let mut stream = provider
         .stream(request, SYSTEM_PROMPT)
-        .take(8)
-        .filter(|event| {
-            std::future::ready(!matches!(
-                event.response,
-                AgentTurnResponse::SpeechDelta { .. }
-            ))
-        });
-    let output = timeout(PROVIDER_TIMEOUT, stream.next())
-        .await
-        .map_err(|_| {
-            fail(
-                StatusCode::GATEWAY_TIMEOUT,
-                "demo_timeout",
-                "The guest provider timed out",
-            )
-        })?
-        .ok_or_else(|| {
-            fail(
-                StatusCode::BAD_GATEWAY,
-                "demo_provider_failed",
-                "The guest provider returned no reply",
-            )
-        })?;
+        .take(MAX_PROVIDER_EVENTS);
+    let output = timeout(PROVIDER_TIMEOUT, async {
+        while let Some(event) = stream.next().await {
+            if !matches!(event.response, AgentTurnResponse::SpeechDelta { .. }) {
+                return Some(event);
+            }
+        }
+        None
+    })
+    .await
+    .map_err(|_| {
+        fail(
+            StatusCode::GATEWAY_TIMEOUT,
+            "demo_timeout",
+            "The guest provider timed out",
+        )
+    })?
+    .ok_or_else(|| {
+        fail(
+            StatusCode::BAD_GATEWAY,
+            "demo_provider_failed",
+            "The guest provider returned no reply",
+        )
+    })?;
+    if let Some(reason) = output.reason {
+        warn!(request_id = %client.request_id, reason, "guest provider failed");
+    }
+    if let Some(served) = &output.served
+        && usage::label(&state.pool, id, served).await.is_err()
+    {
+        warn!(request_id = %client.request_id, "usage route could not be recorded");
+    }
     if let Some(charge) = output.charge {
         usage::settle(&state.pool, id, charge).await.map_err(|_| {
             fail(

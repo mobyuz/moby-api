@@ -118,6 +118,21 @@ async fn usage_limits_round_trip() {
         93
     );
     settle(&pool, previous_id, charge(2, 0)).await.unwrap();
+    let route = Route {
+        provider: "openrouter",
+        model: Some("vendor/model".into()),
+    };
+    label(&pool, previous_id, &route).await.unwrap();
+    assert_eq!(
+        sqlx::query_as::<_, (Option<String>, Option<String>)>(
+            "SELECT provider, model FROM usage_reservations WHERE id = $1"
+        )
+        .bind(previous_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        (Some("openrouter".into()), Some("vendor/model".into()))
+    );
     assert_eq!(
         current(&pool, limits, previous_user)
             .await

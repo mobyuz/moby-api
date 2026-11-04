@@ -109,11 +109,11 @@ fn terminal(response: AgentTurnResponse, input: u32) -> ProviderEvent {
         .expect("serializable agent response")
         .len();
     ProviderEvent {
-        response,
         charge: Some(Charge {
             units: input + u32::try_from(bytes).expect("bounded mock output"),
             cost_microusd: 0,
         }),
+        ..ProviderEvent::from(response)
     }
 }
 

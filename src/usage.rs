@@ -37,6 +37,13 @@ pub(crate) struct Charge {
     pub(crate) cost_microusd: i64,
 }
 
+/// Which provider and model handled a reservation. The ledger stores names only.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Route {
+    pub(crate) provider: &'static str,
+    pub(crate) model: Option<String>,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct DemoBudget {
     pub(crate) daily_units: u32,
@@ -211,6 +218,17 @@ pub(crate) async fn reserve_demo(
     .await?;
     insert_reservation(&mut transaction, id, None, day, "demo", charge).await?;
     transaction.commit().await?;
+    Ok(())
+}
+
+/// Records the route on a reservation. Settlement does not depend on it.
+pub(crate) async fn label(pool: &PgPool, id: Uuid, route: &Route) -> Result<(), UsageError> {
+    sqlx::query("UPDATE usage_reservations SET provider = $2, model = $3 WHERE id = $1")
+        .bind(id)
+        .bind(route.provider)
+        .bind(route.model.as_deref())
+        .execute(pool)
+        .await?;
     Ok(())
 }
 

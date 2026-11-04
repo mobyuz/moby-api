@@ -1,9 +1,9 @@
 use std::{env, error::Error, net::SocketAddr, time::Duration};
 
-use moby_api::{AccessKeys, MIGRATOR, config::Config, openapi, router_with_demo};
+use moby_api::{AccessKeys, MIGRATOR, config::Config, openapi, router_with_llm};
 use sqlx::postgres::PgPoolOptions;
 use tokio::{net::TcpListener, signal};
-use tracing::{Level, info};
+use tracing::{Level, info, warn};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -29,6 +29,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .with_max_level(Level::INFO)
         .init();
 
+    if config.llm.is_paid()
+        && (config.usage.daily_budget_microusd == 0 || config.usage.monthly_budget_microusd == 0)
+    {
+        warn!(
+            "a paid LLM provider is selected but a service budget is 0, so agent turns are rejected"
+        );
+    }
+
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .acquire_timeout(Duration::from_secs(2))
@@ -42,13 +50,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     axum::serve(
         listener,
-        router_with_demo(
+        router_with_llm(
             pool,
             config.accounts,
             config.access_keys,
             config.google,
             config.usage,
             config.demo,
+            config.llm,
         )
         .into_make_service_with_connect_info::<SocketAddr>(),
     )
