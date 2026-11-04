@@ -114,6 +114,35 @@ Mock’da `git status` matni uchun `available_tools` ro‘yxatiga `git_status`ni
 
 Limitlar 128 KiB JSON, 64 xabar, 64 resurs, matn yoki vosita natijasi uchun 8 KiB va 15 soniyalik provayder muddati. Mock o‘zbek lotin va kirill, rus hamda ingliz tillarida deterministik javob qaytaradi. Desktop suhbat tarixini saqlaydi. API suhbat va vosita natijalarini so‘rov davomida xotirada ishlatadi. [OpenAPI kontrakti](openapi.json) · [Agent oqimi bo‘yicha ADR](docs/adr/0006-agent-stream.md)
 
+### OpenRouter provayderi
+
+`MOBY_LLM_PROVIDER` standart qiymati `mock`. `openrouter` agent turnlarini OpenRouter chat completions orqali bajaradi va pul sarflaydi. Mock hech qanday kalit talab qilmaydi, Compose ham standart holatda mockda qoladi. Mehmonlar demosi `MOBY_DEMO_LLM_PROVIDER` bilan alohida tanlanadi va standart qiymati `mock`. [OpenRouter adapteri ADR’i](docs/adr/0010-openrouter-llm.md)
+
+| Muhit o‘zgaruvchisi | Standart | Ma’nosi |
+| --- | --- | --- |
+| `MOBY_LLM_PROVIDER` | `mock` | `mock` yoki `openrouter`. |
+| `MOBY_DEMO_LLM_PROVIDER` | `mock` | Demo uchun `mock` yoki `openrouter`. |
+| `MOBY_OPENROUTER_API_KEY` | yo‘q | Provayder tanlanganda majburiy. Faqat sirlar ombori yoki jarayon muhiti orqali bering. Log va `Debug` chiqishida ko‘rinmaydi. |
+| `MOBY_OPENROUTER_MODEL` | `anthropic/claude-haiku-5.5` | Asosiy model. |
+| `MOBY_OPENROUTER_FALLBACK_MODELS` | `openai/gpt-6-luna` | Vergul bilan ajratilgan zaxira modellar, ko‘pi bilan 3 ta. Bo‘sh qiymat zaxirani o‘chiradi. |
+| `MOBY_OPENROUTER_PRICES` | yo‘q | Vergul bilan ajratilgan `model=kirish:chiqish` juftliklari, mikroUSD/1M token. Har bir sozlangan model uchun 0 dan katta narx majburiy. |
+| `MOBY_OPENROUTER_ZDR` | `true` | `true` bo‘lsa so‘rov faqat nol saqlash (ZDR) endpointlariga yo‘naltiriladi. |
+| `MOBY_OPENROUTER_MAX_OUTPUT_TOKENS` | `300` | Agent javobining 16–1024 oralig‘idagi chegarasi. Bandlov shu chegaradan hisoblanadi. |
+| `MOBY_DEMO_OPENROUTER_MAX_OUTPUT_TOKENS` | `120` | Demo javobining 16–512 oralig‘idagi chegarasi. |
+
+Narx misoli: `MOBY_OPENROUTER_PRICES=anthropic/claude-haiku-5.5=100000:500000,openai/gpt-6-luna=100000:500000`. Noto‘g‘ri yoki yetishmayotgan qiymat API ishga tushishida xato beradi. So‘rovda `models` ro‘yxati, `provider.data_collection=deny`, `zdr` va chegaralangan `max_completion_tokens` bor. Vositalar faqat desktop e’lon qilgan `available_tools` bo‘yicha, parametr sxemalari `moby-protocol` turlaridan olinadi va ID’lar `resources` bilan cheklanadi. Model chaqirgan vosita `ToolRequest` orqali qat’iy tekshiriladi. Yaroqsiz yoki bir turnda ikkinchi chaqiruv `invalid_provider_output` xatosiga aylanadi va hech qachon yuborilmaydi.
+
+Byudjet 0 bo‘lsa pullik turn provayderga yetmasdan `503 service_budget_exhausted` oladi. Ishga tushishda bunday sozlama haqida ogohlantirish chiqadi. API chaqiruvdan oldin kirish uchun so‘rov hajmi, chiqish uchun sozlangan chegara bilan eng qimmat sozlangan modelning narxida yuqori chegarani band qiladi. Hisobot kelgach band qilingan summa haqiqiy tokenlar va xizmat ko‘rsatgan model narxiga tushiriladi. Timeout yoki uzilishda bandlov saqlanadi. `usage_reservations` jadvalida faqat provayder va model nomi yoziladi, mazmun yozilmaydi. 401, 402, 403, 429, 5xx va oqim ichidagi xatolar `provider_unavailable`ga, 408 va muddat tugashi `agent_timeout`ga aylanadi va ketma-ket xatolar hisobiga qo‘shiladi (quyidagi 30 soniyalik to‘xtatish). Chiqish yuborilmagan bo‘lsa 429, 502 va 503 uchun bir marta qayta urinish bor. Mijoz oqimni yopsa HTTP so‘rov bekor qilinadi.
+
+Haqiqiy kalit bilan baholash uchun `MOBY_OPENROUTER_LIVE_TEST_KEY` o‘zgaruvchisini bering va quyidagini bajaring. Sinov pul sarflaydi va standart holatda o‘tkazib yuboriladi.
+
+```powershell
+$env:MOBY_OPENROUTER_LIVE_TEST_KEY = '<kalit>'
+cargo test --locked --lib agent::openrouter::tests::live -- --ignored --nocapture
+```
+
+Sinov `src/agent/openrouter/live-prompts.json` dagi o‘zbek lotin va kirill, rus, ingliz, ikki injection va vosita so‘rovlarini yuboradi. O‘z so‘rovlaringiz uchun `MOBY_OPENROUTER_LIVE_TEST_PROMPTS` bilan shu shakldagi faylni ko‘rsating. Javoblar faqat `--nocapture` bilan terminalga chiqadi. Kechikish va o‘zbek tili sifati hozircha o‘lchanmagan.
+
 ### Kvota va xizmat byudjeti
 
 `GET /v1/usage` faol Bearer sessiyasi uchun qolgan LLM tokenlari, STT soniyalari, TTS belgilarini va keyingi UTC yarim tunini `reset_at` maydonida qaytaradi. Ovoz o‘chirilganda uning qoldiqlari 0. API provayderga murojaat qilishdan oldin foydalanuvchi kvotasi va xizmat byudjetidan yuqori chegarani band qiladi. Hisobot kelganda ortiqcha bandlov bo‘shaydi. Timeout yoki uzilishda sarf noma’lum qolsa, bandlov o‘z davrida hisoblanadi. Kvota yetmasa `429 quota_exceeded`, byudjet yetmasa `503 service_budget_exhausted` qaytadi.
@@ -125,7 +154,7 @@ Limitlar 128 KiB JSON, 64 xabar, 64 resurs, matn yoki vosita natijasi uchun 8 Ki
 | `MOBY_LLM_MONTHLY_BUDGET_MICROUSD` | `0` | LLM, STT va TTS uchun umumiy UTC oylik xarajat chegarasi. |
 | `MOBY_AGENT_ENABLED` | `true` | Agent turnlarini to‘xtatish uchun `false` qilib API’ni qayta ishga tushiring. |
 
-1 USD = 1 000 000 mikroUSD. Mock xarajati 0. Provayder ketma-ket uch marta xato qilsa, servis yangi agent so‘rovlarini 30 soniyaga to‘xtatadi. So‘ng bitta sinov so‘rovi o‘tadi va muvaffaqiyatli javob kelganda trafik ochiladi. [Kvota va bandlov ADR’i](docs/adr/0007-agent-usage.md)
+1 USD = 1 000 000 mikroUSD. Mock xarajati 0, OpenRouter xarajati sozlangan narxlardan hisoblanadi. Provayder ketma-ket uch marta xato qilsa, servis yangi agent so‘rovlarini 30 soniyaga to‘xtatadi. So‘ng bitta sinov so‘rovi o‘tadi va muvaffaqiyatli javob kelganda trafik ochiladi. [Kvota va bandlov ADR’i](docs/adr/0007-agent-usage.md)
 
 ## Ovoz API
 
@@ -142,7 +171,7 @@ Dev Compose ovoz mockini standart yoqadi. Hostda `MOBY_VOICE_ENABLED=true` bilan
 
 ## Mehmonlar uchun veb demo API
 
-`POST /v1/demo/chat` hisob ochmagan mehmon uchun bitta qisqa matn so‘rovini qabul qiladi. JSON tanasi `{"text":"Salom","bot_token":"<turnstile-token>"}` ko‘rinishida. So‘rov 280 belgigacha va 8 KiB JSON bilan chegaralangan. Javobda 240 belgigacha `reply` maydoni bor. Joriy demo provayderi o‘zbekcha mock javob qaytaradi.
+`POST /v1/demo/chat` hisob ochmagan mehmon uchun bitta qisqa matn so‘rovini qabul qiladi. JSON tanasi `{"text":"Salom","bot_token":"<turnstile-token>"}` ko‘rinishida. So‘rov 280 belgigacha va 8 KiB JSON bilan chegaralangan. Javobda 240 belgigacha `reply` maydoni bor. Standart demo provayderi o‘zbekcha mock javob qaytaradi. `MOBY_DEMO_LLM_PROVIDER=openrouter` vositasiz, qisqa chiqishli va alohida byudjetli haqiqiy javob beradi.
 
 Demo standart holatda o‘chiq. Yoqish uchun `MOBY_DEMO_ENABLED=true`, serverda `MOBY_TURNSTILE_SECRET_KEY` va veb demo domeni uchun `MOBY_DEMO_HOSTNAME`ni sozlang. Frontend Turnstile vidjetida shu domen, vidjetning ochiq site key’i va `demo_chat` amalidan foydalanadi. Server tokenni Siteverify orqali tekshiradi. Frontend API’ni bir origin orqali chaqirishi mumkin. [Turnstile server tekshiruvi](https://developers.cloudflare.com/turnstile/get-started/server-side-validation/)
 

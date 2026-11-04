@@ -14,3 +14,4 @@
 - Added `GET /v1/usage`, transactional UTC quota and budget reservations, an agent switch, and a provider circuit breaker.
 - Added bounded WAV transcription and synthesis routes with versioned voice consent, per-modality quotas, and a local mock.
 - Added a guest demo route with Turnstile verification, hashed IP limits, and a separate transactional budget.
+- Added the OpenRouter LLM adapter behind `MOBY_LLM_PROVIDER`, with streamed speech, strict tool decoding, priced usage settlement, provider and model in the usage ledger, prompt v2, and an optional OpenRouter-backed guest demo. The mock stays the default.
