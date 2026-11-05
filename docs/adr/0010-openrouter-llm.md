@@ -46,8 +46,10 @@ arguments, oversized arguments or any decode failure ends the turn with one
 `invalid_provider_output` error, and nothing from the call is forwarded.
 
 Tool results are untrusted. They reach the model as JSON strings in `tool`
-messages, and resource labels and locale hints travel in a system message that
-calls them data. Prompt v2 states these rules, requires the user's language and
+messages, and resource labels, locale hints and the user's `local_time` travel
+in a system message that calls them data. `local_time` is optional, never logged,
+and prompt v2 tells the model to use it for reminder times and to ask the user
+when it is absent or the time is ambiguous. Prompt v2 states these rules, requires the user's language and
 script, one to three plain spoken sentences, no claimed feelings and no invented
 IDs. Prompt v1 files remain unchanged. The demo uses its own v2 prompt.
 
@@ -133,6 +135,7 @@ prices live in configuration, not logic.
   `MOBY_OPENROUTER_ZDR=false` to drop only the ZDR filter.
 - The docs do not say whether `require_parameters` or `parallel_tool_calls:
   false` shrink the set of eligible endpoints for these models.
-- The protocol carries no clock or time zone, so `create_reminder` depends on
-  the model producing a valid `due_at` without knowing the current time.
+- `local_time` depends on the desktop sending it. Without it the model has no
+  clock and is told to ask. The vendored protocol is the unreleased `59717ba`
+  (0.2.0 is not tagged), to be replaced by the tagged release.
 - Cancellation stops billing only for providers that support it.
