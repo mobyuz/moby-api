@@ -1,6 +1,6 @@
 [package]
 name = "moby-protocol"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.98.1"
 description = "Versioned wire contract for the Moby companion"
@@ -13,9 +13,13 @@ default = []
 generate = ["dep:serde_json", "dep:ts-rs"]
 
 [dependencies]
+cobs = { version = "=0.5.1", default-features = false }
+crc32fast = "=1.5.3"
+hmac = { version = "=0.13.0", default-features = false }
 schemars = "=1.2.3"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = { version = "=1.0.154", optional = true }
+sha2 = { version = "=0.11.1", default-features = false }
 time = { version = "=0.3.55", default-features = false, features = ["parsing"] }
 # deny_unknown_fields affects runtime decoding, not TypeScript's structural types.
 ts-rs = { version = "=12.0.1", optional = true, features = ["no-serde-warnings"] }

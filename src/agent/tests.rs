@@ -28,7 +28,7 @@ impl LlmProvider for TestProvider {
     }
 
     fn stream(&self, _: Arc<AgentTurnRequest>, prompt: &'static str) -> ProviderStream {
-        assert!(prompt.starts_with("Moby agent prompt v1"));
+        assert!(prompt.starts_with("Moby agent prompt v2"));
         self.0.lock().unwrap().take().unwrap()
     }
 }

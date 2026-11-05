@@ -14,21 +14,24 @@ use moby_protocol::{
 };
 use sqlx::PgPool;
 use tokio::time::{Instant, timeout_at};
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
     http::api_error,
-    usage::{self, Charge},
+    usage::{self, Charge, Route},
 };
 
 pub(crate) mod circuit;
+mod llm;
 mod mock;
+mod openrouter;
 pub(crate) mod routes;
 #[cfg(test)]
 mod tests;
 
 pub(crate) const TURN_TIMEOUT: Duration = Duration::from_secs(15);
-pub(crate) const SYSTEM_PROMPT: &str = include_str!("agent/prompts/v1.txt");
+pub(crate) const SYSTEM_PROMPT: &str = include_str!("agent/prompts/v2.txt");
 const MAX_MESSAGES: usize = 64;
 const MAX_RESOURCES: usize = 64;
 const MAX_TEXT_BYTES: usize = 8 * 1024;
@@ -39,6 +42,10 @@ pub(crate) type ProviderStream = BoxStream<'static, ProviderEvent>;
 pub(crate) struct ProviderEvent {
     pub(crate) response: AgentTurnResponse,
     pub(crate) charge: Option<Charge>,
+    // The provider and model that did the work, once the provider knows them.
+    pub(crate) served: Option<Route>,
+    // A fixed label for logs when the provider failed. Never provider text.
+    pub(crate) reason: Option<&'static str>,
 }
 
 impl From<AgentTurnResponse> for ProviderEvent {
@@ -46,6 +53,8 @@ impl From<AgentTurnResponse> for ProviderEvent {
         Self {
             response,
             charge: None,
+            served: None,
+            reason: None,
         }
     }
 }
@@ -56,8 +65,18 @@ pub(crate) trait LlmProvider {
     // The returned stream owns any provider work, which ends when it is dropped.
     // Report exact usage on the terminal event when the provider knows it.
     fn stream(&self, request: Arc<AgentTurnRequest>, prompt: &'static str) -> ProviderStream;
+
+    // The configured provider and primary model, recorded in the usage ledger.
+    fn route(&self) -> Route {
+        Route {
+            provider: "mock",
+            model: None,
+        }
+    }
 }
 
+pub use llm::Llm;
+pub(crate) use llm::Providers;
 pub(crate) use mock::MockProvider;
 
 pub(crate) fn validate(request: &AgentTurnRequest) -> Result<(), &'static str> {
@@ -184,14 +203,25 @@ impl Turn {
         } else {
             timeout_at(self.deadline, self.provider.next()).await.ok()
         };
-        let (response, charge) = match next {
-            Some(Some(event)) => (self.validate_output(event.response), event.charge),
+        let (response, charge, served) = match next {
+            Some(Some(event)) => {
+                if let Some(reason) = event.reason {
+                    warn!(request_id = %self.request_id, reason, "agent provider failed");
+                }
+                (
+                    self.validate_output(event.response),
+                    event.charge,
+                    event.served,
+                )
+            }
             Some(None) => (
                 self.error("provider_unavailable", "Agent response was interrupted"),
+                None,
                 None,
             ),
             None => (
                 self.error("agent_timeout", "Agent response timed out"),
+                None,
                 None,
             ),
         };
@@ -202,6 +232,13 @@ impl Turn {
                 !matches!(response, AgentTurnResponse::Error { .. }),
                 Instant::now(),
             );
+            if let Some(route) = served
+                && usage::label(&accounting.pool, accounting.id, &route)
+                    .await
+                    .is_err()
+            {
+                warn!(request_id = %self.request_id, "usage route could not be recorded");
+            }
             if let Some(charge) = charge
                 && usage::settle(&accounting.pool, accounting.id, charge)
                     .await
@@ -238,9 +275,15 @@ impl Turn {
             {
                 return response;
             }
-            AgentTurnResponse::Error { .. } => {
-                ("provider_unavailable", "Agent response was interrupted")
-            }
+            // Only these codes are ours to forward. Provider detail never is.
+            AgentTurnResponse::Error { ref error } => match error.code.as_str() {
+                "agent_timeout" => ("agent_timeout", "Agent response timed out"),
+                "invalid_provider_output" => (
+                    "invalid_provider_output",
+                    "Agent response failed validation",
+                ),
+                _ => ("provider_unavailable", "Agent response was interrupted"),
+            },
             _ => (
                 "invalid_provider_output",
                 "Agent response failed validation",
@@ -250,6 +293,7 @@ impl Turn {
     }
 
     fn error(&self, code: &str, message: &str) -> AgentTurnResponse {
+        warn!(request_id = %self.request_id, code, "agent turn failed");
         AgentTurnResponse::Error {
             error: api_error(code, message, self.request_id.clone()),
         }
@@ -262,7 +306,7 @@ impl Turn {
 }
 
 pub(crate) fn sse(
-    provider: &impl LlmProvider,
+    provider: &(impl LlmProvider + ?Sized),
     request: AgentTurnRequest,
     request_id: String,
     timeout: Duration,

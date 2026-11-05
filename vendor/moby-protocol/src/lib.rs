@@ -4,11 +4,12 @@ mod agent;
 mod expression;
 mod stable_id;
 mod tool;
+pub mod usb;
 mod zoned_date_time;
 
 pub use agent::{
-    AgentMessage, AgentTurnRequest, AgentTurnResponse, ConsentType, Language, ResourceKind, Script,
-    ToolResource, UsageInfo,
+    AgentMessage, AgentTurnRequest, AgentTurnResponse, ConsentType, Language, LocalTime,
+    ResourceKind, Script, ToolResource, UsageInfo,
 };
 pub use expression::{Expression, can_transition};
 pub use stable_id::{InvalidStableId, StableId};

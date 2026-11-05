@@ -8,6 +8,7 @@ use axum::{
 use moby_protocol::{AgentTurnRequest, AgentTurnResponse, UsageInfo};
 use serde_json::json;
 use tokio::time::Instant;
+use tracing::warn;
 use utoipa::openapi::{
     Content, HttpMethod, OpenApi, Ref, SecurityRequirement,
     extensions::ExtensionsBuilder,
@@ -28,7 +29,7 @@ use crate::{
     usage::{self, Work},
 };
 
-use super::{Accounting, LlmProvider, MockProvider, SYSTEM_PROMPT, TURN_TIMEOUT, sse, validate};
+use super::{Accounting, LlmProvider, SYSTEM_PROMPT, TURN_TIMEOUT, sse, validate};
 
 const PATH: &str = "/v1/agent/turn";
 const USAGE_PATH: &str = "/v1/usage";
@@ -102,17 +103,23 @@ async fn turn(
         auth.identity.user_id,
         id,
         Work::Agent,
-        MockProvider.estimate(&request, SYSTEM_PROMPT),
+        state.llm.estimate(&request, SYSTEM_PROMPT),
     )
     .await
     .map_err(|error| usage_failure(error, auth.request_id.clone()))?;
+    if usage::label(&state.pool, id, &state.llm.route())
+        .await
+        .is_err()
+    {
+        warn!(request_id = %auth.request_id, "usage route could not be recorded");
+    }
     let accounting = Accounting {
         pool: state.pool,
         id,
         permit,
     };
     Ok(sse(
-        &MockProvider,
+        &state.llm,
         request,
         auth.request_id,
         TURN_TIMEOUT,
