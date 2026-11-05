@@ -176,6 +176,7 @@ async fn guest_bot_rate_and_budget_round_trip() {
             resources: vec![],
             language: None,
             script: None,
+            local_time: None,
         },
         SYSTEM_PROMPT,
     );

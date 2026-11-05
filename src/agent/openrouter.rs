@@ -218,6 +218,9 @@ fn messages(request: &AgentTurnRequest, prompt: &str) -> Vec<Value> {
     if let Some(script) = request.script {
         context.insert("script".into(), json!(script));
     }
+    if let Some(local_time) = &request.local_time {
+        context.insert("local_time".into(), json!(local_time));
+    }
     if !request.resources.is_empty() {
         context.insert("resources".into(), json!(request.resources));
     }

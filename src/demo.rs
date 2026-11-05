@@ -189,6 +189,7 @@ async fn chat(
         resources: Vec::new(),
         language: None,
         script: None,
+        local_time: None,
     });
     let provider = &demo.provider;
     usage::reserve_demo(
